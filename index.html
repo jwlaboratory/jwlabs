@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="JW Labs is a our quest to learn through experimentation." />
+  <title>JW Labs</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <main class="site-shell">
+    <header class="site-header" aria-labelledby="site-title">
+      <h1 id="site-title">JW Labs</h1>
+    </header>
+
+    <section class="blog-list" aria-labelledby="blog-list-title">
+      <h2 id="blog-list-title">All Posts</h2>
+      <div id="posts" class="posts" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <template id="post-template">
+    <article class="post">
+      <div class="post-meta">
+        <time></time>
+        <span class="dot" aria-hidden="true">/</span>
+        <span class="category"></span>
+      </div>
+      <h3><a class="post-title-link" href=""></a></h3>
+      <p class="summary"></p>
+    </article>
+  </template>
+
+  <script src="./content/blogs.js"></script>
+  <script src="./scripts/render-blog.js"></script>
+</body>
+
+</html>
