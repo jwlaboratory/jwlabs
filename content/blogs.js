@@ -297,9 +297,10 @@ The original curriculum learning paper that we were adjacently inspired by expla
 
 ### Prior Art
 
-Superoptimization is the task of transforming a program into a faster one while preserving its input-output behavior, first coined by Henry Massalin in the 1987 Superoptimizer – A Look at the Smallest Program paper. As the title suggests, search algorithms for superoptimization fail to scale beyond small, loop-free programs. 
+Superoptimization is the task of transforming a program into a faster one while preserving its input-output behavior, first coined by Henry Massalin in the 1987 `Superoptimizer – A Look at the Smallest Program` paper. As the title suggests, search algorithms for superoptimization fail to scale beyond small, loop-free programs. 
 
-\[include notes from the paper mentioning how it does poorly on large programs\]
+An excerpt from the paper:   
+“Even with the probabilistic test, the exhaustive search still grows exponentially with the number of instructions in the generated program. The current version of superoptimizer has generated programs 12 instructions long in several hours running time on a 16MHz 68020 computer. Therefore, the superoptimizer has limited usefulness as a code generator for a compiler.”
 
 The SuperCoder paper, using an LLM, was able to break the wall of only a few line programs by using a non-deterministic heuristic. Still, we notice the paper uses only an average of \~22 lines of C code and \~130 lines of assembly code
 
@@ -322,18 +323,118 @@ Then, we run benchmarks on each bucket:
 
 It is clear to see as the context gets longer, the models perform worse.
 
-We hypothesize that using lazy edits, ie, prompting the LLM to generate diffs instead of regenerating full files, increases accuracy on long files and decreases hallucinations.
+We hypothesize that using lazy edits, ie, prompting the LLM to generate diffs instead of regenerating full files, increases accuracy on long files and decreases hallucinations. Another benefit of this may be that even on small programs, increases in direct, targeted performance improvements and decreases in bugs such as syntax or forgetting prior directives.
 
-...... to be continued
+### Introduction to lazy-edits and fast-apply
+
+Lazy edit and fast-apply  
+\[to be written up\]
+
+### Experiment
+
+First, we need to see, can the tiny 7b Qwen model understand the instructions to lazy edit? Can this even be something we can train on without any SFT at all (will we have a sparse reward issue, if doing raw RL?)
+
+We update the prompt to include the instructions from [morphllm.com](http://morphllm.com) to lazy edit:
+
+\`\`\`  
+   "Given the following C code and assembly code, your task is to generate highly optimized x86-64 assembly code.
+
+C Code:  
+   "\`\`\`c\\n{c\_code}\\n\`\`\`\\n\\n"
+
+Assembly Code:  
+   "\`\`\`assembly\\n{unopt\_asm}\\n\`\`\`\\n\\n"  
+    
+Only output the (lazy edit) optimized assembly code. Do not include any other text. Wrap the assembly code in \`\`\`assembly\`\`\` tags.  
+    
+How to lazy edit:  
+Use \\"// ... existing code ...\\" to represent unchanged code blocks. Include just enough surrounding context to locate each edit precisely. Example format:
+
+   "// ... existing code ...\\n"  
+   "FIRST\_EDIT\\n"  
+   "// ... existing code ...\\n"  
+   "SECOND\_EDIT\\n"  
+   "// ... existing code ...\\n"
+
+Rules:  
+"- ALWAYS use \\"// ... existing code ...\\" for unchanged sections (omitting this marker will cause deletions)  
+\- Include minimal context around edits only when needed for disambiguation  
+\- Preserve exact indentation  
+\- For deletions: show context before and after, omit the deleted lines  
+\- Batch multiple edits to the same file in one call
+
+ Optimized Assembly Code:
+
+\`\`\`
+
+Then, we run the same benchmarks from the prior art on both SuperCoder and on the base Qwen model and observe:
+
+The SuperCoder completely ignored instructions\! But that’s okay \- it probably did that because it was already RL’d to a specific knowledge of understanding and went with what it knew.
+
+On the other hand, the base Qwen model did seem to generate something following the rules\!  
+\`\`\`assembly  
+// ... existing code ...  
+movl	$0, \-16(%rbp)  
+movl	$0, \-12(%rbp)  
+// ... existing code ...  
+movl	\-24(%rbp), %edx  
+movl	\-28(%rbp), %eax  
+cmpl	%eax, %edx  
+jge	.L3  
+movl	\-16(%rbp), %eax  
+addl	$1, %eax  
+movl	%eax, \-16(%rbp)  
+jmp	.L4  
+.L3:  
+movl	\-12(%rbp), %eax  
+addl	$1, %eax  
+movl	%eax, \-12(%rbp)  
+.L4:  
+addl	$1, \-20(%rbp)  
+// ... existing code ...  
+movl	\-12(%rbp), %edx  
+movl	\-16(%rbp), %eax  
+cmpl	%eax, %edx  
+cmovle	%edx, %eax  
+// ... existing code ...  
+\`\`\`
+
+This is good news \-- it shows that Qwen can follow the instructions, and thus we can proceed with building out our RL pipeline and it should work (no super sparse rewards from failing too or skipping the lazy edits requirement)
+
+### Subexperiment A
+
+The goal of this subexperiment is to simply test the thesis: Lazy edits can improve accuracy and performance of the main model. For simplicity, we won’t create a new reward function or a bigger dataset with longer programs for now. We will copy SuperCoder’s methodology but only change the prompt to include lazy-edit instructions.
+
+![][image12]  
+Validation reward looks great \-- improving on SuperCoder significantly and showing clean improvements each iteration.
+
+Additionally, our metric for tracking Morph Fast Apply usage is positive \-- showing that the model is learning and using the lazy-edits correctly, and not just ignoring those instructions and trying to generate assembly itself. (This might also foreshadow the fact that it learns better with lazy-edits because why else would it keep exploring this path in RL if it was not successful?)  
+![][image13]
 
 # 3 \- Graph neural networks to understand programs better
 
+### Prior Art
+
 # 4 \- Genetic-based compiler flag optimization
+
+### Prior Art
 
 # 5 \- Our pip-install benchmarking tool
 
+### Prior Art
+
+### Benchmarking
+
+Evaluation is a big problem How would we verify the correctness of the optimized assembly and benchmark the performance?
+
+- Can formally verify or we could use random input test cases  
+- found formally verification too hard (room for future work) and used random input test cases wasnt comprehensive enough  
+- Luckily competitive coding sites like codeforces have extensive test cases for us to use, so we used this dataset  
+- Built our own benchmarking suite and open sourced it: \--\> built timing on linux docker containers \+ uses hyperfine to standarize the cache \--\> checks for correctness, static performance metrics, clock cycles, etc \--\> open sourced it: [https://github.com/jwlabs/infra/tree/main/hyperfine](https://github.com/jwlabs/infra/tree/main/hyperfine) \--\> easy to use and integrate into any project
 
 # Future Work
+
+- formal verification
 
 */ }),
   },
