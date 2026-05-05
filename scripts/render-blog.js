@@ -361,7 +361,11 @@ const renderListPage = () => {
     return;
   }
 
-  posts.forEach((post) => {
+  const postsByMostRecent = [...posts].sort(
+    (a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`),
+  );
+
+  postsByMostRecent.forEach((post) => {
     const postNode = template.content.cloneNode(true);
     const link = postNode.querySelector(".post-title-link");
 
