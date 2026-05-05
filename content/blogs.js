@@ -438,4 +438,236 @@ Evaluation is a big problem How would we verify the correctness of the optimized
 
 */ }),
   },
+  {
+    slug: "tab-model-schematic-design",
+    title: "Training an Autocomplete 'Tab' Model for AI Schematic Design",
+    date: "2026-05-05",
+    category: "Research",
+    summary: "Exploring how to build a tab-completion model for schematic design, similar to Cursor's tab model but for PCB/schematic editors like Protoflow.",
+    markdown: markdown(() => { /*
+
+# Training an autocomplete 'tab' model for AI schematic design
+
+By: Shrey Birmiwal, Rishik Bodetti (Protoflow CEO)
+
+\*\*\* send to team at: https://x.com/benln/status/2050970577255411756?s=20
+
+# Overview
+
+Protoflow is an AI native PCB and schematic design application \-- similar to KiCad, but with AI native features. For example, you can describe what you want in plain English, like "connect an ESP32 to a DAC with proper decoupling, and the AI generates the sub\u2011circuit, including passives and wiring. One way to think of Protoflow is the 'cursor' for schematic design.
+
+Cursor, an AI code editor, however, in addition to agent mode (prompt to generate code) has a unique feature: a tab model that predicts what you will code next, then displays a 'ghost' preview of your predicted edits. The user can just 'tab-tab-tab' through predictions, and the model is extremely good at the cursor.
+
+We wondered, can we create a model like that for schematic design? Can we create a model that predicts the next connection or placement of parts and run inference at such low latency and high accuracy that it is actually useful to the development flow of users?
+
+# Dataset creation
+
+We first consider how we would gather the necessary data for training this project. Since we are predicting the user's next action, we would need to train on data that has prev state->next state. We can do this by curating a dataset that follows users' lineages (the list of actions that led them to the next state).
+
+Thinking ahead, we could train the model such that, given an initial state, it would be rewarded for getting closer to a final, complete schematic. But we believe that such an approach might have the model start doing generic things, like placing batteries or random connections that are plausible but not actually correct. Instead, we break it into step-by-step rewards/training: the model will train to match the human development lineage.
+
+We consider collecting this data from real users by watching the action sequences they take in our app and snapshotting the state at each step (creating input-output states). However, we feel this would take too long to collect the necessary data, and would not be fully representative of all the types of schematics people can create, may cause privacy issues, and may be better suited for online RL later down the road.
+
+Instead, we opt for augmenting our data using large language models. We can start by scraping lots of kicad\_sch files from GitHub and verifying the validity/completion/correctness of the file by using kicad\_cli and various basic checks (version, over 5 components, etc). Then, we use LLMs to generate plausible and likely states. Doing a dry run, we quickly run into lots of issues:
+
+First, providing an LLM with an entire schematic file was far too large to fit in the context window.
+Here's an example of a schematic file:
+\`\`\`
+(kicad\_sch
+	(version 20231120)
+	(generator "eeschema")
+	(generator\_version "8.0")
+	(uuid "55df327d-53d0-46f4-9d9b-076c48b5e587")
+	(paper "A4")
+	(lib\_symbols
+		(symbol "2-INPUT AND:SN74LVC1G08DBVR"
+			(pin\_names
+				(offset 1.016)
+			)
+			(exclude\_from\_sim no)
+			(in\_bom yes)
+			(on\_board yes)
+			(property "Reference" "U"
+				(at -12.7 11.16 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left bottom)
+				)
+			)
+			(property "Value" "SN74LVC1G08DBVR"
+				(at -12.7 -14.16 0)
+... (15,000 more lines)
+\`\`\`
+These files quickly explode in size and have lots of metadata that may not be needed for us to predict the next state, and will not fit in the context window of most LLMs when augmenting our data. Worse, this metadata may confuse the attention of our final predictive model and introduce extra noise, being harmful. The problem only compounds on the output tokens of the augmenting LLM: We need the LLM to recreate the entire schematic at each stage, causing an insane amount of hallucinations.
+
+We fix this by simplifying the input/output expectation of the LLM.
+
+For input: We create a strip\_kicad file that simplifies the kicad file into just the key parts and connections, reducing the context window 20x or more. We remove wire positionings, labels, metadata, and any unnecessary details. An added benefit to this is we can rewrite the output to be much more LLM-friendly by describing connections in a text-friendly format. Here's a snipped example:
+
+6,857->119 lines (57.5x reduction! Probably a ~40x reduction in context window)
+\`\`\`
+--- Stripped KiCad Output ---
+COMPONENTS:
+  C14 | 100n | Device:C | uuid=0e7a1b41
+    pin 1 (~) [Passive] -> +3.3V
+    pin 2 (~) [Passive] -> GND
+  C15 | 100n | Device:C | uuid=886ba49a
+    pin 1 (~) [Passive] -> +3.3V
+    pin 2 (~) [Passive] -> GND
+  C2 | 10u | Device:C | uuid=7e2af52f
+    pin 1 (~) [Passive] -> VBUS
+    pin 2 (~) [Passive] -> GND
+  ..... 95 lines
+NETS:
+  +3.3V [POWER]: C14.~(1)[Passive], C15.~(1)[Passive], J2.Pin\_4(4)[Passive], R7.~(1)[Passive], U1.3V3(P$8)[BiDi], U3.VDD(6)[PowerIn], U3.VREGIN(7)[PowerIn]
+  DHT11 [SIGNAL]: J2.Pin\_3(3)[Passive], U1.GPIO4(P$16)[BiDi]
+  GND [POWER]: C14.~(2)[Passive], C15.~(2)[Passive], C2.~(2)[Passive], C4.~(2)[Passive], C5.~(2)[Passive], D2.~(1)[Passive], D3.~(1)[Passive], D4.~(1)[Passive], J1.GND(5)[PowerIn],
+.... 11 lines
+\`\`\`
+
+For output, instead of asking the LLM to generate entire schematic states at each step, we ask it to generate a sequence of user actions. Since we have the original file, we can reconstruct it ourselves by matching the sequence and the full file. We'll recreate the full schematic file from each step of the lineage.
+
+This somewhat works! Given a prompt to Gemini 3.1 Pro preview:
+\`\`\`
+Create a complete, human-like schematic construction lineage from the final reduced schematic.
+
+Output only ADD, CONNECT, and NO\_CONNECT actions inside one \`\`\` code block. No prose.
+
+Use UUIDs only. Do not use refs like R25 or U3. Do not invent UUIDs.
+
+Syntax:
+ADD uuid=<component\_uuid>
+
+CONNECT uuid=<component\_uuid>:<pin\_id> NET <net\_name>
+CONNECT uuid=<component\_uuid>:<pin\_id> uuid=<component\_uuid>:<pin\_id> ... NET <net\_name>
+
+NO\_CONNECT uuid=<component\_uuid>:<pin\_id>
+NO\_CONNECT uuid=<component\_uuid>:<pin\_id> uuid=<component\_uuid>:<pin\_id> ...
+
+Rules:
+- Every component must be ADDed exactly once.
+- Every connected pin must be CONNECTed exactly once to its exact final net.
+- Every NO\_CONNECT pin must be included.
+- Omit UNCONNECTED pins.
+- Every CONNECT line must contain the NET sentinel before the net name.
+- Do not output partial lines, comments, ellipses, headings, or markdown other than the one code block.
+- You may batch multiple CONNECTs on one line only when they share the same action/net.
+- ADD one component per line.
+- Make the order human-like by grouping functional blocks. Within each block, humans usually add a small set of parts and connect them before moving on.
+
+Examples:
+ADD uuid=d48a925e
+CONNECT uuid=d48a925e:1 uuid=5d7f1129:A6 uuid=5d7f1129:B6 NET USB\_D+
+NO\_CONNECT uuid=316fc54f:6 uuid=316fc54f:8 uuid=316fc54f:9
+
+Final reduced schematic:
+<SCHEMATIC\_HERE>
+
+Generated, accurate, human-likely construction lineage:
+\`\`\`
+
+It creates something like:
+\`\`\`
+ADD uuid=b1b0c15e
+CONNECT uuid=b1b0c15e:6 uuid=b1b0c15e:7 NET +3.3V
+CONNECT uuid=b1b0c15e:29 uuid=b1b0c15e:3 NET GND
+NO\_CONNECT uuid=b1b0c15e:1 uuid=b1b0c15e:12 uuid=b1b0c15e:13 uuid=b1b0c15e:14 uuid=b1b0c15e:15 uuid=b1b0c15e:16 uuid=b1b0c15e:17 uuid=b1b0c15e:18 uuid=b1b0c15e:19 uuid=b1b0c15e:2 uuid=b1b0c15e:20 uuid=b1b0c15e:21 uuid=b1b0c15e:22 uuid=b1b0c15e:23 uuid=b1b0c15e:24 uuid=b1b0c15e:27 uuid=b1b0c15e:28
+ADD uuid=4db25211
+CONNECT uuid=4db25211:P$8 NET +3.3V
+CONNECT uuid=4db25211:P$16 NET DHT11
+CONNECT uuid=4db25211:P$1 NET GND
+CONNECT uuid=4db25211:P$6 NET GPIO0
+CONNECT uuid=4db25211:P$2 uuid=b1b0c15e:25 NET RXD
+CONNECT uuid=4db25211:P$3 uuid=b1b0c15e:26 NET TXD
+CONNECT uuid=4db25211:P$9 NET VBUS
+NO\_CONNECT uuid=4db25211:P$10 uuid=4db25211:P$11 uuid=4db25211:P$12 uuid=4db25211:P$13 uuid=4db25211:P$14 uuid=4db25211:P$15 uuid=4db25211:P$4 uuid=4db25211:P$5 uuid=4db25211:P$7
+ADD uuid=0e7a1b41
+CONNECT uuid=0e7a1b41:1 NET +3.3V
+CONNECT uuid=0e7a1b41:2 NET GND
+ADD uuid=886ba49a
+CONNECT uuid=886ba49a:1 NET +3.3V
+CONNECT uuid=886ba49a:2 NET GND
+ADD uuid=7e2af52f
+....
+\`\`\`
+
+Which is mostly valid! But, there is a few issues.
+
+1. Hallucinations - the LLM is still prone to missing connections, creating invalid schematics, and forgetting syntax.
+2. Cost - we are roughly paying 20 cents per call to gemini api -- over 10,000 examples cost will add up.
+3. Does not cover all permutations -- multiple different routes exist to create the same final schematic, and many are valid/likely human paths to do so. By calling an LLM to generate a human path, it only creates 1 path, which forces the model to memorize an order that may change between training examples with no clear reason, confusing and a lack of generalization.
+
+Two alternate approaches we considered: dropping and masking, and BFS/DFS deterministic generation of lineages.
+
+Dropping and masking involves taking the completed, GitHub-validated kicad\_sch file and then masking certain components or connections. We would train the model to predict the output of the missing component or connection using this training data. The problem with this approach is that the model will only learn to fill in 1 item on mostly complete schematics, and also that the last item may not follow the natural development flow of a human.
+
+The second approach is creating the lineage entirely deterministically. By starting at one main part, ie power, and then running a BFS algorithm to create a somewhat realistic path to complete the schematic. The issue with this again is that it does not properly simulate a human, and training on non-realistic data is going to severely degrade the model's usability.
+
+Finally, we decided on a middle ground:
+
+1. Create a deterministic, guaranteed to be correct lineage given a final GitHub kicad\_sch file
+2. Use an LLM to determine human-like block orderings, and what connections/items are flexible/fixed, and what actions should be grouped as once
+3. Use the LLM information and the deterministic lineage to generate lots of valid permutations, covering many training examples that are likely to be human
+
+It is important when prompting the LLM to create human-like orderings to consider batching: how much to batch user actions into 1 space?
+
+-- question: how much to batch
+
+# Training
+
+-- question: how to reward not even if took a path that is plausible? Multiple correct answers?
+We use
+
+Consider the LLM vs GNN model
+GAT / only subgraph with distance 3 of touched
+-> also what is our node/edge structure looking like: holding how recently touched asw
+We can have a score on each node OR edge (since you couldve last done a item or connection) of how recently edited. We can also have score on last selected item as is\_selected = true on the node
+
+Size generation issue
+
+LLM density / vram issue
+Context window
+Inferenc epseed
+Training cost
+Time till first token
+Low latency
+Try to run on device
+
+Last 3 actions touched could be useful
+
+Interesting thought here
+[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals](https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals)
+[https://cursor.com/blog/tab-rl](https://cursor.com/blog/tab-rl)
+Cursor basically uses a 2nd model to predict if it will be accepted or not
+And a first model to predict users next move
+Since its hard to train 1st model to NOT predict sometimes
+
+--> gnn might solve issue of text representing schematic poorly, + how physical ordering doesnt matter of items, only connections matter
+
+1. And how to get GNN to guess what to add and what to connect (2 diff things , edge predict vs node predict)
+
+Faster inference, more accurate since problem is basically graph rpoblem
+
+# Inference
+
+If we went LLM route:
+
+1. Have high KV cache since the current state will be repeated or 90% similar each time
+2. We can have speculative decoding like how morph does it using OG code as predictive if we use LLM since most of the map will remain the same (this is LLM with regen full map case only)
+3. Can we get tiny enough model to run on device? Or run extremely fast?
+
+Caching only do inference when new state
+Only generate diffs
+
+Speculative speculative chain on next thing as soon as high likely accept suggestion shown
+
+Online RL
+Out model just predicts next action, we algoritmicslaly figure out UI / best place to place it
+
+Need to be blazingly fast (<100ms latency)
+
+*/ }),
+  },
 ];
