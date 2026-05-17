@@ -18,6 +18,133 @@ const formatDate = (dateValue) => {
   }).format(date);
 };
 
+const formatBlogDate = (dateValue) => {
+  const date = new Date(`${dateValue}T00:00:00`);
+
+  return new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "long",
+    day: "2-digit",
+  }).format(date);
+};
+
+const isSkippableLine = (line) => {
+  const trimmed = line.trim();
+
+  return (
+    !trimmed ||
+    /^[-*_]{3,}$/.test(trimmed) ||
+    /^\\?\*\\?\*\\?\*/.test(trimmed)
+  );
+};
+
+const preprocessPostMarkdown = (markdown = "", post = {}) => {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let authors = post.authors ?? "";
+  const abstractLines = [];
+  let bodyStart = 0;
+  let index = 0;
+
+  while (index < lines.length && isSkippableLine(lines[index])) {
+    index += 1;
+  }
+
+  const firstLine = unescapeMarkdownSyntax(lines[index] ?? "").trim();
+  const titleMatch = firstLine.match(/^#\s+(.+)/);
+
+  if (titleMatch) {
+    index += 1;
+
+    while (index < lines.length && isSkippableLine(lines[index])) {
+      index += 1;
+    }
+  }
+
+  while (index < lines.length) {
+    const line = unescapeMarkdownSyntax(lines[index]).trim();
+
+    if (!line) {
+      index += 1;
+      continue;
+    }
+
+    const byMatch = line.match(/^By:\s*(.+)/i);
+
+    if (byMatch) {
+      authors = authors ? `${authors}, ${byMatch[1]}` : byMatch[1];
+      index += 1;
+      continue;
+    }
+
+    const advisedMatch = line.match(/^Advised by:\s*(.+)/i);
+
+    if (advisedMatch) {
+      const advisedText = `Advised by: ${advisedMatch[1]}`;
+      authors = authors ? `${authors}. ${advisedText}` : advisedText;
+      index += 1;
+      continue;
+    }
+
+    break;
+  }
+
+  while (index < lines.length && isSkippableLine(lines[index])) {
+    index += 1;
+  }
+
+  const nextLine = unescapeMarkdownSyntax(lines[index] ?? "").trim();
+  const abstractHeadingMatch = nextLine.match(/^#\s*Abstract\s*$/i);
+
+  if (abstractHeadingMatch) {
+    index += 1;
+
+    while (index < lines.length) {
+      const line = unescapeMarkdownSyntax(lines[index]).trim();
+
+      if (/^#{1,2}\s+/.test(line)) {
+        break;
+      }
+
+      abstractLines.push(lines[index]);
+      index += 1;
+    }
+  } else {
+    while (index < lines.length) {
+      const line = unescapeMarkdownSyntax(lines[index]).trim();
+
+      if (/^#{1,6}\s+/.test(line)) {
+        break;
+      }
+
+      if (isSkippableLine(lines[index])) {
+        let peek = index + 1;
+
+        while (peek < lines.length && isSkippableLine(lines[peek])) {
+          peek += 1;
+        }
+
+        if (
+          peek < lines.length &&
+          /^#{1,6}\s+/.test(unescapeMarkdownSyntax(lines[peek]).trim())
+        ) {
+          break;
+        }
+      }
+
+      abstractLines.push(lines[index]);
+      index += 1;
+    }
+  }
+
+  bodyStart = index;
+
+  return {
+    authors: authors.trim(),
+    abstractMarkdown: abstractLines.join("\n").trim(),
+    bodyMarkdown: lines.slice(bodyStart).join("\n").trim(),
+  };
+};
+
 const appendInlineMarkdown = (root, text) => {
   const cleanText = unescapeMarkdownSyntax(text);
   const inlinePattern =
@@ -77,11 +204,28 @@ const createQuote = (text) => {
   return quote;
 };
 
-const createHeading = (level, text) => {
+const createHeadingId = (text, usedIds) => {
+  const base = slugify(text) || "section";
+  let id = base;
+  let suffix = 2;
+
+  while (usedIds.has(id)) {
+    id = `${base}-${suffix}`;
+    suffix += 1;
+  }
+
+  usedIds.add(id);
+  return id;
+};
+
+const createHeading = (level, text, usedIds) => {
   const heading = document.createElement(`h${Math.min(level + 1, 6)}`);
+  heading.id = createHeadingId(text, usedIds);
   appendInlineMarkdown(heading, text);
   return heading;
 };
+
+const CODE_BLOCK_COLLAPSED_LINES = 2;
 
 const createCodeBlock = (lines, language = "") => {
   const pre = document.createElement("pre");
@@ -94,7 +238,27 @@ const createCodeBlock = (lines, language = "") => {
   code.textContent = lines.join("\n");
   pre.append(code);
 
-  return pre;
+  if (lines.length <= CODE_BLOCK_COLLAPSED_LINES) {
+    return pre;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "code-block is-collapsed";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "code-block-toggle";
+  toggle.textContent = "Expand";
+  toggle.setAttribute("aria-expanded", "false");
+
+  toggle.addEventListener("click", () => {
+    const collapsed = wrapper.classList.toggle("is-collapsed");
+    toggle.textContent = collapsed ? "Expand" : "Collapse";
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+  });
+
+  wrapper.append(pre, toggle);
+  return wrapper;
 };
 
 const unescapeMarkdownSyntax = (text = "") =>
@@ -212,7 +376,7 @@ const isBlockStart = (line) =>
   /^\|.+\|$/.test(line) ||
   /^```/.test(line);
 
-const renderMarkdown = (markdown = "", post = {}) => {
+const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) => {
   const fragment = document.createDocumentFragment();
   const rawLines = markdown.replace(/\r\n/g, "\n").trim().split("\n");
   const { contentLines: lines, references } = extractReferenceDefinitions(rawLines);
@@ -243,7 +407,9 @@ const renderMarkdown = (markdown = "", post = {}) => {
 
     const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
     if (headingMatch) {
-      fragment.append(createHeading(headingMatch[1].length, headingMatch[2]));
+      fragment.append(
+        createHeading(headingMatch[1].length, headingMatch[2], usedHeadingIds),
+      );
       index += 1;
       continue;
     }
@@ -380,6 +546,119 @@ const renderListPage = () => {
   });
 };
 
+const buildTableOfContents = (articleRoot) => {
+  const tocNav = document.querySelector("#article-toc");
+  const tocScroll = tocNav?.querySelector(".toc-scroll");
+
+  if (!tocNav || !tocScroll) {
+    return;
+  }
+
+  const headings = articleRoot.querySelectorAll(
+    ".blog-body h2, .blog-body h3, .blog-body h4, .blog-body h5, .blog-body h6",
+  );
+
+  if (headings.length === 0) {
+    tocNav.hidden = true;
+    return;
+  }
+
+  const rootList = document.createElement("ul");
+  rootList.className = "toc-list";
+  const stack = [{ level: 0, list: rootList }];
+
+  headings.forEach((heading) => {
+    const level = Number.parseInt(heading.tagName.slice(1), 10);
+    const listItem = document.createElement("li");
+    listItem.className = `toc-item toc-level-${level}`;
+
+    const link = document.createElement("a");
+    link.className = "toc-link";
+    link.href = `#${heading.id}`;
+    link.textContent = heading.textContent;
+    listItem.append(link);
+
+    while (stack[stack.length - 1].level >= level) {
+      stack.pop();
+    }
+
+    stack[stack.length - 1].list.append(listItem);
+
+    const sublist = document.createElement("ul");
+    sublist.className = "toc-sublist";
+    listItem.append(sublist);
+    stack.push({ level, list: sublist });
+  });
+
+  rootList.querySelectorAll(".toc-sublist:empty").forEach((list) => list.remove());
+  tocScroll.append(rootList);
+  tocNav.hidden = false;
+
+  const tocLinks = tocScroll.querySelectorAll(".toc-link");
+
+  const setActiveLink = (id) => {
+    tocLinks.forEach((tocLink) => {
+      tocLink.classList.toggle(
+        "is-active",
+        tocLink.getAttribute("href") === `#${id}`,
+      );
+    });
+  };
+
+  tocLinks.forEach((tocLink) => {
+    tocLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      const targetId = tocLink.getAttribute("href").slice(1);
+      const target = document.getElementById(targetId);
+
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        history.replaceState(null, "", `#${targetId}`);
+        setActiveLink(target.id);
+      }
+    });
+  });
+
+  if ("IntersectionObserver" in window) {
+    const visibleHeadings = new Map();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            visibleHeadings.set(entry.target.id, entry.intersectionRatio);
+          } else {
+            visibleHeadings.delete(entry.target.id);
+          }
+        });
+
+        if (visibleHeadings.size === 0) {
+          return;
+        }
+
+        const activeId = [...visibleHeadings.entries()].sort(
+          (a, b) => b[1] - a[1],
+        )[0][0];
+        setActiveLink(activeId);
+      },
+      {
+        rootMargin: "-20% 0px -70% 0px",
+        threshold: [0, 0.25, 0.5, 1],
+      },
+    );
+
+    headings.forEach((heading) => observer.observe(heading));
+  }
+
+  if (window.location.hash) {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+
+    if (document.getElementById(id)) {
+      setActiveLink(id);
+    }
+  }
+};
+
 const renderArticlePage = () => {
   const postRoot = document.querySelector("#post");
   const template = document.querySelector("#article-template");
@@ -398,9 +677,43 @@ const renderArticlePage = () => {
 
   document.title = `${post.title} / JW Labs`;
 
+  const { authors, abstractMarkdown, bodyMarkdown } = preprocessPostMarkdown(
+    post.markdown,
+    post,
+  );
+  const headingIds = new Set();
   const postNode = template.content.cloneNode(true);
-  postNode.querySelector(".post-body").append(renderMarkdown(post.markdown, post));
+
+  postNode.querySelector(".blog-title").textContent = post.title;
+
+  const metadata = postNode.querySelector(".blogmetadata");
+  const dateNode = postNode.querySelector(".blog-date");
+  const authorNode = postNode.querySelector(".blog-author");
+
+  dateNode.textContent = formatBlogDate(post.date);
+
+  if (authors) {
+    authorNode.textContent = authors;
+    metadata.hidden = false;
+  } else {
+    authorNode.remove();
+    metadata.hidden = false;
+  }
+
+  const abstractNode = postNode.querySelector("#abstract");
+
+  if (abstractMarkdown) {
+    abstractNode.hidden = false;
+    abstractNode.append(renderMarkdown(abstractMarkdown, post, headingIds));
+  } else {
+    abstractNode.remove();
+  }
+
+  postNode
+    .querySelector(".blog-body")
+    .append(renderMarkdown(bodyMarkdown, post, headingIds));
   postRoot.append(postNode);
+  buildTableOfContents(postRoot);
 };
 
 renderListPage();

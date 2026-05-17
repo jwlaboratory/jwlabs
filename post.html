@@ -9,14 +9,41 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 
-<body>
-  <main class="site-shell">
-    <a class="back-link" href="./index.html">Back to all posts</a>
-    <article id="post" class="article" aria-live="polite"></article>
-  </main>
+<body class="site" data-page="article">
+  <div class="page">
+    <div class="layout">
+      <aside class="sidebar" aria-label="Site">
+        <a class="logo" href="./index.html">JW LABS</a>
+        <nav class="sidebar-nav">
+          <a class="nav-link is-active" href="./index.html">Research</a>
+          <a class="nav-link" href="./team.html">Team</a>
+        </nav>
+        <nav id="article-toc" class="article-toc" aria-label="On this page" hidden>
+          <p class="toc-label">On this page</p>
+          <div class="toc-scroll"></div>
+        </nav>
+      </aside>
+
+      <main class="main text-content">
+        <article id="post" class="blog-content" aria-live="polite"></article>
+      </main>
+    </div>
+
+    <footer class="site-footer">
+      <p class="footer-copy">© JW Labs</p>
+    </footer>
+  </div>
 
   <template id="article-template">
-    <div class="post-body article-body"></div>
+    <header class="blog-header">
+      <h1 class="blog-title"></h1>
+    </header>
+    <div class="blogmetadata" hidden>
+      <div class="blog-date"></div>
+      <div class="blog-author"></div>
+    </div>
+    <div id="abstract" class="blog-abstract" hidden></div>
+    <div class="blog-body"></div>
   </template>
 
   <script src="./content/blogs.js"></script>
