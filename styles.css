@@ -277,6 +277,26 @@ body[data-page="article"] .site-footer {
   margin: 0;
 }
 
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.footer-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  color: var(--text);
+}
+
+.footer-link-tbd {
+  color: #aaaaaa;
+  cursor: default;
+}
+
 .blog-content {
   width: 100%;
   max-width: var(--article-max-width);
