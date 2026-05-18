@@ -445,8 +445,7 @@ Evaluation is a big problem How would we verify the correctness of the optimized
     category: "Research",
     summary: "Exploring how to build a tab-completion model for schematic design, similar to Cursor's tab model but for PCB/schematic editors like Protoflow.",
     markdown: markdown(() => { /*
-
-# Training an autocomplete 'tab' model for AI schematic design
+# Training an autocomplete ‘tab’ model for AI schematic design
 
 By: Shrey Birmiwal, Rishik Bodetti (Protoflow CEO)
 
@@ -454,152 +453,162 @@ By: Shrey Birmiwal, Rishik Bodetti (Protoflow CEO)
 
 # Overview
 
-Protoflow is an AI native PCB and schematic design application \-- similar to KiCad, but with AI native features. For example, you can describe what you want in plain English, like "connect an ESP32 to a DAC with proper decoupling, and the AI generates the sub\u2011circuit, including passives and wiring. One way to think of Protoflow is the 'cursor' for schematic design.
+### What is ProtoFlow
 
-Cursor, an AI code editor, however, in addition to agent mode (prompt to generate code) has a unique feature: a tab model that predicts what you will code next, then displays a 'ghost' preview of your predicted edits. The user can just 'tab-tab-tab' through predictions, and the model is extremely good at the cursor.
+Protoflow is an AI native PCB and schematic design application \-- similar to KiCad, but with AI native features. For example, you can describe what you want in plain English, like “connect an ESP32 to a DAC with proper decoupling, and the AI generates the sub‑circuit, including passives and wiring. One way to think of Protoflow is the ‘cursor’ for schematic design.
 
-We wondered, can we create a model like that for schematic design? Can we create a model that predicts the next connection or placement of parts and run inference at such low latency and high accuracy that it is actually useful to the development flow of users?
+### Why a tab model for ProtoFlow
+
+Cursor, an AI code editor, however, in addition to agent mode (prompt to generate code) has a unique feature: a tab model that predicts what you will code next, then displays a ‘ghost’ preview of your predicted edits. The user can just ‘tab-tab-tab’ through predictions, and the model is extremely good at the cursor.
+
+We wondered, can we create a model like that for schematic design? Can we create a model that predicts the next connection or placement of parts and run inference at such low latency and high accuracy that it is actually useful to the development flow of users? We think this is doable since it’s a much simpler problem: No need to worry about multiple code files, schematics are much easier represented than code (various languages, etc), and schematics inherently have rules and patterns in them.
 
 # Dataset creation
 
-We first consider how we would gather the necessary data for training this project. Since we are predicting the user's next action, we would need to train on data that has prev state->next state. We can do this by curating a dataset that follows users' lineages (the list of actions that led them to the next state).
+We first consider how we would gather the necessary data for training this project. Since we are predicting the user’s next action, we would need to train on data that has prev state-\>next state. We can do this by curating a dataset that follows users' lineages (the list of actions that led them to the next state). 
 
 Thinking ahead, we could train the model such that, given an initial state, it would be rewarded for getting closer to a final, complete schematic. But we believe that such an approach might have the model start doing generic things, like placing batteries or random connections that are plausible but not actually correct. Instead, we break it into step-by-step rewards/training: the model will train to match the human development lineage.
+
+### Augmenting data by working backward
 
 We consider collecting this data from real users by watching the action sequences they take in our app and snapshotting the state at each step (creating input-output states). However, we feel this would take too long to collect the necessary data, and would not be fully representative of all the types of schematics people can create, may cause privacy issues, and may be better suited for online RL later down the road.
 
 Instead, we opt for augmenting our data using large language models. We can start by scraping lots of kicad\_sch files from GitHub and verifying the validity/completion/correctness of the file by using kicad\_cli and various basic checks (version, over 5 components, etc). Then, we use LLMs to generate plausible and likely states. Doing a dry run, we quickly run into lots of issues:
 
-First, providing an LLM with an entire schematic file was far too large to fit in the context window.
-Here's an example of a schematic file:
-\`\`\`
-(kicad\_sch
-	(version 20231120)
-	(generator "eeschema")
-	(generator\_version "8.0")
-	(uuid "55df327d-53d0-46f4-9d9b-076c48b5e587")
-	(paper "A4")
-	(lib\_symbols
-		(symbol "2-INPUT AND:SN74LVC1G08DBVR"
-			(pin\_names
-				(offset 1.016)
-			)
-			(exclude\_from\_sim no)
-			(in\_bom yes)
-			(on\_board yes)
-			(property "Reference" "U"
-				(at -12.7 11.16 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left bottom)
-				)
-			)
-			(property "Value" "SN74LVC1G08DBVR"
-				(at -12.7 -14.16 0)
-... (15,000 more lines)
-\`\`\`
+First, providing an LLM with an entire schematic file was far too large to fit in the context window.  
+Here’s an example of a schematic file:  
+\`\`\`  
+(kicad\_sch  
+	(version 20231120\)  
+	(generator "eeschema")  
+	(generator\_version "8.0")  
+	(uuid "55df327d-53d0-46f4-9d9b-076c48b5e587")  
+	(paper "A4")  
+	(lib\_symbols  
+		(symbol "2-INPUT AND:SN74LVC1G08DBVR"  
+			(pin\_names  
+				(offset 1.016)  
+			)  
+			(exclude\_from\_sim no)  
+			(in\_bom yes)  
+			(on\_board yes)  
+			(property "Reference" "U"  
+				(at \-12.7 11.16 0\)  
+				(effects  
+					(font  
+						(size 1.27 1.27)  
+					)  
+					(justify left bottom)  
+				)  
+			)  
+			(property "Value" "SN74LVC1G08DBVR"  
+				(at \-12.7 \-14.16 0\)  
+…. (15,000 more lines)  
+\`\`\`  
 These files quickly explode in size and have lots of metadata that may not be needed for us to predict the next state, and will not fit in the context window of most LLMs when augmenting our data. Worse, this metadata may confuse the attention of our final predictive model and introduce extra noise, being harmful. The problem only compounds on the output tokens of the augmenting LLM: We need the LLM to recreate the entire schematic at each stage, causing an insane amount of hallucinations.
+
+### Reducing context size to make generation easier
 
 We fix this by simplifying the input/output expectation of the LLM.
 
-For input: We create a strip\_kicad file that simplifies the kicad file into just the key parts and connections, reducing the context window 20x or more. We remove wire positionings, labels, metadata, and any unnecessary details. An added benefit to this is we can rewrite the output to be much more LLM-friendly by describing connections in a text-friendly format. Here's a snipped example:
+For input: We create a strip\_kicad file that simplifies the kicad file into just the key parts and connections, reducing the context window 20x or more. We remove wire positionings, labels, metadata, and any unnecessary details. An added benefit to this is we can rewrite the output to be much more LLM-friendly by describing connections in a text-friendly format. Here’s a snipped example:
 
-6,857->119 lines (57.5x reduction! Probably a ~40x reduction in context window)
-\`\`\`
---- Stripped KiCad Output ---
-COMPONENTS:
-  C14 | 100n | Device:C | uuid=0e7a1b41
-    pin 1 (~) [Passive] -> +3.3V
-    pin 2 (~) [Passive] -> GND
-  C15 | 100n | Device:C | uuid=886ba49a
-    pin 1 (~) [Passive] -> +3.3V
-    pin 2 (~) [Passive] -> GND
-  C2 | 10u | Device:C | uuid=7e2af52f
-    pin 1 (~) [Passive] -> VBUS
-    pin 2 (~) [Passive] -> GND
-  ..... 95 lines
-NETS:
-  +3.3V [POWER]: C14.~(1)[Passive], C15.~(1)[Passive], J2.Pin\_4(4)[Passive], R7.~(1)[Passive], U1.3V3(P$8)[BiDi], U3.VDD(6)[PowerIn], U3.VREGIN(7)[PowerIn]
-  DHT11 [SIGNAL]: J2.Pin\_3(3)[Passive], U1.GPIO4(P$16)[BiDi]
-  GND [POWER]: C14.~(2)[Passive], C15.~(2)[Passive], C2.~(2)[Passive], C4.~(2)[Passive], C5.~(2)[Passive], D2.~(1)[Passive], D3.~(1)[Passive], D4.~(1)[Passive], J1.GND(5)[PowerIn],
-.... 11 lines
+6,857→119 lines (57.5x reduction\! Probably a \~40x reduction in context window)  
+\`\`\`  
+\--- Stripped KiCad Output \---  
+COMPONENTS:  
+  C14 | 100n | Device:C | uuid=0e7a1b41  
+    pin 1 (\~) \[Passive\] \-\> \+3.3V  
+    pin 2 (\~) \[Passive\] \-\> GND  
+  C15 | 100n | Device:C | uuid=886ba49a  
+    pin 1 (\~) \[Passive\] \-\> \+3.3V  
+    pin 2 (\~) \[Passive\] \-\> GND  
+  C2 | 10u | Device:C | uuid=7e2af52f  
+    pin 1 (\~) \[Passive\] \-\> VBUS  
+    pin 2 (\~) \[Passive\] \-\> GND  
+  ….. 95 lines  
+NETS:  
+  \+3.3V \[POWER\]: C14.\~(1)\[Passive\], C15.\~(1)\[Passive\], J2.Pin\_4(4)\[Passive\], R7.\~(1)\[Passive\], U1.3V3(P$8)\[BiDi\], U3.VDD(6)\[PowerIn\], U3.VREGIN(7)\[PowerIn\]  
+  DHT11 \[SIGNAL\]: J2.Pin\_3(3)\[Passive\], U1.GPIO4(P$16)\[BiDi\]  
+  GND \[POWER\]: C14.\~(2)\[Passive\], C15.\~(2)\[Passive\], C2.\~(2)\[Passive\], C4.\~(2)\[Passive\], C5.\~(2)\[Passive\], D2.\~(1)\[Passive\], D3.\~(1)\[Passive\], D4.\~(1)\[Passive\], J1.GND(5)\[PowerIn\],   
+…. 11 lines  
 \`\`\`
 
-For output, instead of asking the LLM to generate entire schematic states at each step, we ask it to generate a sequence of user actions. Since we have the original file, we can reconstruct it ourselves by matching the sequence and the full file. We'll recreate the full schematic file from each step of the lineage.
+For output, instead of asking the LLM to generate entire schematic states at each step, we ask it to generate a sequence of user actions. Since we have the original file, we can reconstruct it ourselves by matching the sequence and the full file. We’ll recreate the full schematic file from each step of the lineage.
 
-This somewhat works! Given a prompt to Gemini 3.1 Pro preview:
-\`\`\`
+This somewhat works\! Given a prompt to Gemini 3.1 Pro preview:  
+\`\`\`  
 Create a complete, human-like schematic construction lineage from the final reduced schematic.
 
 Output only ADD, CONNECT, and NO\_CONNECT actions inside one \`\`\` code block. No prose.
 
 Use UUIDs only. Do not use refs like R25 or U3. Do not invent UUIDs.
 
-Syntax:
-ADD uuid=<component\_uuid>
+Syntax:  
+ADD uuid=\<component\_uuid\>
 
-CONNECT uuid=<component\_uuid>:<pin\_id> NET <net\_name>
-CONNECT uuid=<component\_uuid>:<pin\_id> uuid=<component\_uuid>:<pin\_id> ... NET <net\_name>
+CONNECT uuid=\<component\_uuid\>:\<pin\_id\> NET \<net\_name\>  
+CONNECT uuid=\<component\_uuid\>:\<pin\_id\> uuid=\<component\_uuid\>:\<pin\_id\> ... NET \<net\_name\>
 
-NO\_CONNECT uuid=<component\_uuid>:<pin\_id>
-NO\_CONNECT uuid=<component\_uuid>:<pin\_id> uuid=<component\_uuid>:<pin\_id> ...
+NO\_CONNECT uuid=\<component\_uuid\>:\<pin\_id\>  
+NO\_CONNECT uuid=\<component\_uuid\>:\<pin\_id\> uuid=\<component\_uuid\>:\<pin\_id\> ...
 
-Rules:
-- Every component must be ADDed exactly once.
-- Every connected pin must be CONNECTed exactly once to its exact final net.
-- Every NO\_CONNECT pin must be included.
-- Omit UNCONNECTED pins.
-- Every CONNECT line must contain the NET sentinel before the net name.
-- Do not output partial lines, comments, ellipses, headings, or markdown other than the one code block.
-- You may batch multiple CONNECTs on one line only when they share the same action/net.
-- ADD one component per line.
-- Make the order human-like by grouping functional blocks. Within each block, humans usually add a small set of parts and connect them before moving on.
+Rules:  
+\- Every component must be ADDed exactly once.  
+\- Every connected pin must be CONNECTed exactly once to its exact final net.  
+\- Every NO\_CONNECT pin must be included.  
+\- Omit UNCONNECTED pins.  
+\- Every CONNECT line must contain the NET sentinel before the net name.  
+\- Do not output partial lines, comments, ellipses, headings, or markdown other than the one code block.  
+\- You may batch multiple CONNECTs on one line only when they share the same action/net.  
+\- ADD one component per line.  
+\- Make the order human-like by grouping functional blocks. Within each block, humans usually add a small set of parts and connect them before moving on.
 
-Examples:
-ADD uuid=d48a925e
-CONNECT uuid=d48a925e:1 uuid=5d7f1129:A6 uuid=5d7f1129:B6 NET USB\_D+
+Examples:  
+ADD uuid=d48a925e  
+CONNECT uuid=d48a925e:1 uuid=5d7f1129:A6 uuid=5d7f1129:B6 NET USB\_D+  
 NO\_CONNECT uuid=316fc54f:6 uuid=316fc54f:8 uuid=316fc54f:9
 
-Final reduced schematic:
-<SCHEMATIC\_HERE>
+Final reduced schematic:  
+\<SCHEMATIC\_HERE\>
 
-Generated, accurate, human-likely construction lineage:
+Generated, accurate, human-likely construction lineage:  
 \`\`\`
 
-It creates something like:
+It creates something like:  
+\`\`\`  
+ADD uuid=b1b0c15e  
+CONNECT uuid=b1b0c15e:6 uuid=b1b0c15e:7 NET \+3.3V  
+CONNECT uuid=b1b0c15e:29 uuid=b1b0c15e:3 NET GND  
+NO\_CONNECT uuid=b1b0c15e:1 uuid=b1b0c15e:12 uuid=b1b0c15e:13 uuid=b1b0c15e:14 uuid=b1b0c15e:15 uuid=b1b0c15e:16 uuid=b1b0c15e:17 uuid=b1b0c15e:18 uuid=b1b0c15e:19 uuid=b1b0c15e:2 uuid=b1b0c15e:20 uuid=b1b0c15e:21 uuid=b1b0c15e:22 uuid=b1b0c15e:23 uuid=b1b0c15e:24 uuid=b1b0c15e:27 uuid=b1b0c15e:28  
+ADD uuid=4db25211  
+CONNECT uuid=4db25211:P$8 NET \+3.3V  
+CONNECT uuid=4db25211:P$16 NET DHT11  
+CONNECT uuid=4db25211:P$1 NET GND  
+CONNECT uuid=4db25211:P$6 NET GPIO0  
+CONNECT uuid=4db25211:P$2 uuid=b1b0c15e:25 NET RXD  
+CONNECT uuid=4db25211:P$3 uuid=b1b0c15e:26 NET TXD  
+CONNECT uuid=4db25211:P$9 NET VBUS  
+NO\_CONNECT uuid=4db25211:P$10 uuid=4db25211:P$11 uuid=4db25211:P$12 uuid=4db25211:P$13 uuid=4db25211:P$14 uuid=4db25211:P$15 uuid=4db25211:P$4 uuid=4db25211:P$5 uuid=4db25211:P$7  
+ADD uuid=0e7a1b41  
+CONNECT uuid=0e7a1b41:1 NET \+3.3V  
+CONNECT uuid=0e7a1b41:2 NET GND  
+ADD uuid=886ba49a  
+CONNECT uuid=886ba49a:1 NET \+3.3V  
+CONNECT uuid=886ba49a:2 NET GND  
+ADD uuid=7e2af52f  
+….  
 \`\`\`
-ADD uuid=b1b0c15e
-CONNECT uuid=b1b0c15e:6 uuid=b1b0c15e:7 NET +3.3V
-CONNECT uuid=b1b0c15e:29 uuid=b1b0c15e:3 NET GND
-NO\_CONNECT uuid=b1b0c15e:1 uuid=b1b0c15e:12 uuid=b1b0c15e:13 uuid=b1b0c15e:14 uuid=b1b0c15e:15 uuid=b1b0c15e:16 uuid=b1b0c15e:17 uuid=b1b0c15e:18 uuid=b1b0c15e:19 uuid=b1b0c15e:2 uuid=b1b0c15e:20 uuid=b1b0c15e:21 uuid=b1b0c15e:22 uuid=b1b0c15e:23 uuid=b1b0c15e:24 uuid=b1b0c15e:27 uuid=b1b0c15e:28
-ADD uuid=4db25211
-CONNECT uuid=4db25211:P$8 NET +3.3V
-CONNECT uuid=4db25211:P$16 NET DHT11
-CONNECT uuid=4db25211:P$1 NET GND
-CONNECT uuid=4db25211:P$6 NET GPIO0
-CONNECT uuid=4db25211:P$2 uuid=b1b0c15e:25 NET RXD
-CONNECT uuid=4db25211:P$3 uuid=b1b0c15e:26 NET TXD
-CONNECT uuid=4db25211:P$9 NET VBUS
-NO\_CONNECT uuid=4db25211:P$10 uuid=4db25211:P$11 uuid=4db25211:P$12 uuid=4db25211:P$13 uuid=4db25211:P$14 uuid=4db25211:P$15 uuid=4db25211:P$4 uuid=4db25211:P$5 uuid=4db25211:P$7
-ADD uuid=0e7a1b41
-CONNECT uuid=0e7a1b41:1 NET +3.3V
-CONNECT uuid=0e7a1b41:2 NET GND
-ADD uuid=886ba49a
-CONNECT uuid=886ba49a:1 NET +3.3V
-CONNECT uuid=886ba49a:2 NET GND
-ADD uuid=7e2af52f
-....
-\`\`\`
 
-Which is mostly valid! But, there is a few issues.
+Which is mostly valid\! But, there is a few issues.
 
-1. Hallucinations - the LLM is still prone to missing connections, creating invalid schematics, and forgetting syntax.
-2. Cost - we are roughly paying 20 cents per call to gemini api -- over 10,000 examples cost will add up.
-3. Does not cover all permutations -- multiple different routes exist to create the same final schematic, and many are valid/likely human paths to do so. By calling an LLM to generate a human path, it only creates 1 path, which forces the model to memorize an order that may change between training examples with no clear reason, confusing and a lack of generalization.
+1. Hallucinations \- the LLM is still prone to missing connections, creating invalid schematics, and forgetting syntax.  
+2. Cost \- we are roughly paying 20 cents per call to gemini api \-- over 10,000 examples cost will add up.  
+3. Does not cover all permutations \-- multiple different routes exist to create the same final schematic, and many are valid/likely human paths to do so. By calling an LLM to generate a human path, it only creates 1 path, which forces the model to memorize an order that may change between training examples with no clear reason, confusing and a lack of generalization.
 
-Two alternate approaches we considered: dropping and masking, and BFS/DFS deterministic generation of lineages.
+### Generating lineages in a “smarter” way: constrained permutations
+
+We started by considering 2 alternate approaches: dropping and masking, and BFS/DFS deterministic generation of lineages.
 
 Dropping and masking involves taking the completed, GitHub-validated kicad\_sch file and then masking certain components or connections. We would train the model to predict the output of the missing component or connection using this training data. The problem with this approach is that the model will only learn to fill in 1 item on mostly complete schematics, and also that the last item may not follow the natural development flow of a human.
 
@@ -607,44 +616,438 @@ The second approach is creating the lineage entirely deterministically. By start
 
 Finally, we decided on a middle ground:
 
-1. Create a deterministic, guaranteed to be correct lineage given a final GitHub kicad\_sch file
-2. Use an LLM to determine human-like block orderings, and what connections/items are flexible/fixed, and what actions should be grouped as once
+1. Create a deterministic, guaranteed to be correct lineage given a final GitHub kicad\_sch file (no LLM to generate a lineage)  
+2. Use an LLM to determine human-like block orderings, and what connections/items are flexible/fixed, and what actions should be grouped as once  
 3. Use the LLM information and the deterministic lineage to generate lots of valid permutations, covering many training examples that are likely to be human
 
-It is important when prompting the LLM to create human-like orderings to consider batching: how much to batch user actions into 1 space?
+We need to think of a way to use LLMs to create not hard-coded exact paths, but rather something like a dependency graph that still looks like human orderings, but also deals with batches of human edits, and also blocks by both dependencies but human probability. Let’s think more about step 2, using the LLM and what that looks like.
 
--- question: how much to batch
+Thought process 1:  
+Humans likely design schematics in functional blocks: designing the functional blocks. Within each block, they do certain actions in groups, ie, connect all pins from x to y. These blocks can have multiple orders, and so can each group. 
+
+There is a tricky balance between permutating all possibilities and keeping only the human-likely groupings. 5 blocks with 4 flexible groups is 5\! \* (4\!)^5 \= \~840M training, which many of are *likely* not human-traversals\!
+
+Step 1: Generate the functional blocks
+
+- LLM “err on side of putting things as fixed. anything a human would highly likely do in an order, fix it. If smth is genuinely up to user preference and can be done either way 50-50,, make it a flexible block. Also make sure u are keeping track of dependencies’  
+- The blocks are like human chunks of workTier 1: The Macro-Block (Functional Units)  
+- Humans build modularly. They complete (or mostly complete) one functional block before moving to the next. Examples: Power Supply, Microcontroller Core, USB-C Interface, Sensor Array. Batching Rule: High-level isolation. You should rarely mix actions from different macro-blocks unless they are the global nets (like hooking up the main power rail) linking them together.
+
+Ofc some of the permutations might be broken bc of ordering, but we can just discard them bc we have so many anyway.
+
+We notice that hte lineage generated earlier is too verbose and confusing  
+d=d14efac8:A2 NET GND  
+CONNECT uuid=d14efac8:A1 NET net\_2  
+CONNECT uuid=d14efac8:11 NET net\_5  
+CONNECT uuid=d14efac8:14 NET net\_6  
+ADD uuid=c870e3bf  
+CONNECT uuid=c870e3bf:1 NET GND  
+CONNECT uuid=c870e3bf:2 NET net\_27  
+ADD uuid=4a236151  
+CONNECT uuid=4a236151:1 NET GND  
+CONNECT uuid=4a236151:2 NET net\_18  
+ADD uuid=6e7352a5  
+CONNECT uuid=6e7352a5:2 NET GND  
+CONNECT uuid=6e7352a5:1 NET net\_1  
+ADD uuid=dee90173
+
+No knowledge what each uuid part actually looks like and its too confusing  
+Instead lets make it smth the LLM can easily reference with line numbers and actual part names  
+We resolve the refs, remove library path (noise), and bring in the net names as well to give more context for the LLM.
+
+New:  
+\--- Generated Lineage \---  
+01 ADD U1 | ATmega328-P  
+02 CONNECT U1:22(GND) U1:8(GND) NET GND  
+03 ADD U2 | LM7805\_TO220  
+04 CONNECT U2:2(GND) NET GND  
+05 CONNECT U2:1(VI) NET VI  
+06 CONNECT U1:20(AVCC) U1:7(VCC) U2:3(VO) NET AVCC  
+07 ADD Y1 | 16MHz Crystal  
+08 CONNECT U1:9(XTAL1/PB6) Y1:2 NET XTAL1/PB6  
+09 CONNECT U1:10(XTAL2/PB7) Y1:1 NET XTAL2/PB7  
+10 ADD C1 | 22p  
+11 CONNECT C1:2(\~) NET GND  
+12 CONNECT C1:1(\~) NET XTAL1/PB6  
+13 ADD C2 | 22p  
+14 CONNECT C2:1(\~) NET GND  
+15 CONNECT C2:2(\~) NET XTAL2/PB7  
+16 ADD C3 | 100n  
+17 CONNECT C3:1(\~) NET GND  
+18 CONNECT C3:2(\~) NET AVCC  
+19 ADD R1 | 1K  
+20 CONNECT R1:2(\~) NET net\_20  
+21 CONNECT R1:1(\~) U1:3(PD1) NET PD1  
+22 ADD R2 | 2K  
+23 CONNECT R2:2(\~) NET GND  
+24 CONNECT R2:1(\~) NET net\_20  
+25 ADD R3 | 10K  
+26 CONNECT R3:1(\~) U1:1(\~{RESET}/PC6) NET net\_1  
+27 CONNECT R3:2(\~) NET AVCC  
+28 ADD R4 | 330R  
+29 CONNECT R4:1(\~) U1:13(PD7) NET PD7  
+30 CONNECT R4:2(\~) NET A  
+31 ADD R5 | 10K  
+32 CONNECT R5:1(\~) NET GND  
+33 CONNECT R5:2(\~) U1:4(PD2) NET PD2  
+34 ADD R6 | 330R  
+35 CONNECT R6:1(\~) NET A  
+36 CONNECT R6:2(\~) NET AVCC  
+37 ADD J1 | Conn\_01x04  
+38 CONNECT J1:3(Pin\_3) NET GND  
+39 CONNECT J1:2(Pin\_2) U1:2(PD0) NET PD0  
+40 CONNECT J1:1(Pin\_1) NET net\_20  
+41 CONNECT J1:4(Pin\_4) NET AVCC  
+42 ADD J2 | Conn\_01x02  
+43 CONNECT J2:1(Pin\_1) NET GND  
+44 CONNECT J2:2(Pin\_2) NET net\_6  
+45 ADD J3 | Conn\_01x02  
+46 CONNECT J3:1(Pin\_1) NET GND  
+47 CONNECT J3:2(Pin\_2) NET VI  
+48 ADD K1 | JQC-3FF-005-1Z  
+49 CONNECT K1:A2(\~) NET GND  
+50 CONNECT K1:A1(\~) NET PD7  
+51 CONNECT K1:11(\~) NET AVCC  
+52 CONNECT K1:14(\~) NET net\_6  
+53 ADD D1 | LED  
+54 CONNECT D1:1(K) NET GND  
+55 CONNECT D1:2(A) NET A  
+56 ADD D2 | LED  
+57 CONNECT D2:1(K) NET GND  
+58 CONNECT D2:2(A) NET A  
+59 ADD SW1 | SW\_Push  
+60 CONNECT SW1:2 NET GND  
+61 CONNECT SW1:1 NET net\_1  
+62 ADD SW2 | SW\_Push  
+63 CONNECT SW2:1 NET PD2  
+64 CONNECT SW2:2 NET AVCC  
+\--- End Generated Lineage \---
+
+Ideal output:
+
+FIXED Group 1: Main parts  
+1 FIXED  
+1,4,29,53 FIXED
+
+The issue here is that prompting for blocks then ordering those, then prompting for groups within blocks is too complex..
+
+what if we screw the groups/blocks and just made the llm generate groups. each group is what a human would do in 1 liek 4 minute ish chunk. ike connect all pins here. or add and connect this. one suggestion.
+
+then, we ask llm to a) create groups and b) tell me if its flexible fixed and what it depends on, leaning towards fixing as much as possible. Each group doesn tneed to worry about ordering within it
+
+we take it, then we create perms (of group orderings), trim off those perms that are broken
+
+LLM adds description so it also self rationalizes internally and potentially stronger more rational output  
+Maybe smth liek this
+
+\`\`\`  
+GROUP 1: Add MCU \+ power pins  
+FIXED   
+lines: 0001 0002
+
+GROUP 2: Add voltage regulator \+ wire  
+FIXED  
+lines: 0003 0004 0005 0006
+
+GROUP 3: Crystal \+ load caps   
+DEPENDS ON: 1  
+lines: 0007 0008 0009 0010 0011 0012 0013 0014 0015
+
+GROUP 4: Relay driver circuit  
+FLEXIBLE   
+lines: 0028 0029 0030 0048 0049 0050
+
+GROUP 5: Input switches   
+FLEXIBLE   
+lines: 0059 0060 0061 0062 0063 0064
+
+Likely orderings:  
+1\. Group 1, group2, group 4, group 5, group 3  
+2\. Group 1, group 2, group 3, group 4, group 5  
+3\. Group 1, group 2, group 4, group 2, group 1  
+\`\`\`
+
+Hmm maybe we just 
+
+1. Fade groups/blocks  
+2. Fade creating permutations our selves  
+3. We just get llm to create groups and determine what is dependent on what, then create a few highly likely orderings  
+4. We validate it and keep the valid ones and use those
+
+So we need to create a new prompt
+
+\--- LLM Prompt (includes full lineage below prompt text) \---  
+You are given a linneage that a robot took to create a schematic on KiCad. The robot does NOT necessarily match human behavior.  
+Your job is 2 fold:  
+1\. Create human like blocks of work  
+ \- Humans build modularly. An electrical engineer will work on one functional block at a time, ie, adding and wiring up a decoupling cap, or adding and wiring up a microcontroller, etc.  
+ \- Each block should not be too many actions at once. It should be something that a human would sit down, think, and then do in 1 go all together as one descriable unit of work  
+\- Keep tightly coupled actions together, such as adding a component and wiring its local pins.  
+\- A group should usually be small enough that a human could do it in one focused editing pass.  
+\- Prefer functional chunks over arbitrary line ranges.  
+\- Do not create new schematic actions.  
+\- Do not rewrite schematic actions.  
+\- Only refer to input line numbers.
+
+   
+2\. Create an ordering of blocks  
+ \- You need to tell me what a real engineer would most likely do first, second, etc by telling me multiple, highly likely block orderings.  
+ \- Each of these orderings must also be VALID. They must all still be valid linneages, ie NO connecting pins before the components are added.  
+ \- You can give me from 1-5 different orderings.
+
+Output Format and rules  
+    \- return with \`\`\` block for the final answer  
+    \- Include the Group with description, the line \# from the input, and what it depends on.  
+    \- Include the LIKELY ORDERINGS, in order of likelihood, that are both CORRECT and VALID but also most human likely.  
+    \- Reference the line numbers from the input, not anything else. Follow the example format strictly  
+    \- Make sure to COVER EVERY SINGLE LINE in the input.
+
+GROUP \<id\>: \<short description\>  
+LINES: \<space-separated input line numbers\>  
+DEPENDS ON: \<space-separated group ids, or none\>
+
+LIKELY ORDERINGS:  
+1\. \<space-separated group ids\>  
+2\. \<space-separated group ids\>  
+3\. \<space-separated group ids\>
+
+Example output:  
+\`\`\`  
+GROUP 1: Add the ATmega328P and establish its ground and power connections.  
+LINES: 01 02  
+DEPENDS ON: none
+
+GROUP 2: Add the regulator, connect input/output power, and establish AVCC.  
+LINES: 03 04 05 06  
+DEPENDS ON: 1
+
+.. more groups here in an actual output (3-6)
+
+LIKELY ORDERINGS:  
+1\. 1 2 3 4 6 5  
+2\. 1 2 4 6 3 5  
+3\. 1 2 5 3 4 6  
+\`\`\`
+
+The input linneage:
+
+\`\`\`  
+01 ADD U1 | ATmega328-P  
+02 CONNECT U1:22(GND) U1:8(GND) NET GND  
+03 ADD U2 | LM7805\_TO220  
+04 CONNECT U2:2(GND) NET GND  
+05 CONNECT U2:1(VI) NET VI  
+06 CONNECT U1:20(AVCC) U1:7(VCC) U2:3(VO) NET AVCC  
+07 ADD Y1 | 16MHz Crystal  
+08 CONNECT U1:9(XTAL1/PB6) Y1:2 NET XTAL1/PB6  
+09 CONNECT U1:10(XTAL2/PB7) Y1:1 NET XTAL2/PB7  
+10 ADD C1 | 22p  
+11 CONNECT C1:2(\~) NET GND  
+12 CONNECT C1:1(\~) NET XTAL1/PB6  
+13 ADD C2 | 22p  
+14 CONNECT C2:1(\~) NET GND  
+15 CONNECT C2:2(\~) NET XTAL2/PB7  
+16 ADD C3 | 100n  
+17 CONNECT C3:1(\~) NET GND  
+18 CONNECT C3:2(\~) NET AVCC  
+19 ADD R1 | 1K  
+20 CONNECT R1:2(\~) NET net\_20  
+21 CONNECT R1:1(\~) U1:3(PD1) NET PD1  
+22 ADD R2 | 2K  
+23 CONNECT R2:2(\~) NET GND  
+24 CONNECT R2:1(\~) NET net\_20  
+25 ADD R3 | 10K  
+26 CONNECT R3:1(\~) U1:1(\~{RESET}/PC6) NET net\_1  
+27 CONNECT R3:2(\~) NET AVCC  
+28 ADD R4 | 330R  
+29 CONNECT R4:1(\~) U1:13(PD7) NET PD7  
+30 CONNECT R4:2(\~) NET A  
+31 ADD R5 | 10K  
+32 CONNECT R5:1(\~) NET GND  
+33 CONNECT R5:2(\~) U1:4(PD2) NET PD2  
+34 ADD R6 | 330R  
+35 CONNECT R6:1(\~) NET A  
+36 CONNECT R6:2(\~) NET AVCC  
+37 ADD J1 | Conn\_01x04  
+38 CONNECT J1:3(Pin\_3) NET GND  
+39 CONNECT J1:2(Pin\_2) U1:2(PD0) NET PD0  
+40 CONNECT J1:1(Pin\_1) NET net\_20  
+41 CONNECT J1:4(Pin\_4) NET AVCC  
+42 ADD J2 | Conn\_01x02  
+43 CONNECT J2:1(Pin\_1) NET GND  
+44 CONNECT J2:2(Pin\_2) NET net\_6  
+45 ADD J3 | Conn\_01x02  
+46 CONNECT J3:1(Pin\_1) NET GND  
+47 CONNECT J3:2(Pin\_2) NET VI  
+48 ADD K1 | JQC-3FF-005-1Z  
+49 CONNECT K1:A2(\~) NET GND  
+50 CONNECT K1:A1(\~) NET PD7  
+51 CONNECT K1:11(\~) NET AVCC  
+52 CONNECT K1:14(\~) NET net\_6  
+53 ADD D1 | LED  
+54 CONNECT D1:1(K) NET GND  
+55 CONNECT D1:2(A) NET A  
+56 ADD D2 | LED  
+57 CONNECT D2:1(K) NET GND  
+58 CONNECT D2:2(A) NET A  
+59 ADD SW1 | SW\_Push  
+60 CONNECT SW1:2 NET GND  
+61 CONNECT SW1:1 NET net\_1  
+62 ADD SW2 | SW\_Push  
+63 CONNECT SW2:1 NET PD2  
+64 CONNECT SW2:2 NET AVCC  
+\`\`\`  
+\--- End LLM Prompt (includes full lineage below prompt text) \---
+
+\--- LLM Response (attempt 1\) \---  
+\`\`\`  
+GROUP 1: Add the ATmega328P microcontroller and establish its ground connection.  
+LINES: 01 02  
+DEPENDS ON: none
+
+GROUP 2: Add the LM7805 voltage regulator and connect its power nets to the MCU.  
+LINES: 03 04 05 06  
+DEPENDS ON: 1
+
+GROUP 3: Add the 16MHz crystal oscillator and its load capacitors.  
+LINES: 07 08 09 10 11 12 13 14 15  
+DEPENDS ON: 1
+
+GROUP 4: Add the decoupling capacitor for the AVCC line.  
+LINES: 16 17 18  
+DEPENDS ON: none
+
+GROUP 5: Add the UART communication header and its TX logic-level voltage divider.  
+LINES: 19 20 21 22 23 24 37 38 39 40 41  
+DEPENDS ON: 1
+
+GROUP 6: Add the MCU reset circuit (pull-up resistor and push button).  
+LINES: 25 26 27 59 60 61  
+DEPENDS ON: 1
+
+GROUP 7: Add the LED indicators and their current limiting resistors.  
+LINES: 28 29 30 34 35 36 53 54 55 56 57 58  
+DEPENDS ON: 1
+
+GROUP 8: Add the user input push button and its pull-down resistor.  
+LINES: 31 32 33 62 63 64  
+DEPENDS ON: 1
+
+GROUP 9: Add the relay circuit and its output terminal block.  
+LINES: 42 43 44 48 49 50 51 52  
+DEPENDS ON: none
+
+GROUP 10: Add the main power input terminal block.  
+LINES: 45 46 47  
+DEPENDS ON: none
+
+LIKELY ORDERINGS:  
+1\. 1 10 2 4 3 6 5 8 7 9  
+2\. 10 1 2 4 3 6 7 9 8 5  
+3\. 1 3 6 2 4 10 8 7 9 5  
+\`\`\`
+
+### Creating usable training data
+
+worry  
+\- IF LLM approach we need to make text not be differnet labels each time, ie net names need to be consistnat no? and need a way to consistnaize it
+
+\- we need to keep the blocks in the output linneages format
+
+We need both for GNN approach and for the normal approach
+
+We also need to add in UUID into this asw 
+
+Final prediction needs to be like:
+
+BATCH:  
+Add uuid x  
+attach wire from UUID x to UUID y
+
+So we need to keep batches and uuids in our training set
+
+Realize order within a output (of a batch, like what item the llm first outputs) doesnt lry matter cuz they all will be shown as one in a ghost preview.
+
+\---------  
+We created LLM data by each input/output pair can be created per line of the lineage
+
+Issue \#1:  
+ \- we have the first prediction is off an empty field. This means it has nothing ot base its prediction off  
+Solution: we just remove the first
+
+Issue \#2:
+
+- me input mapping to different outputs.  
+- Examples:  
+- {"input": "", "output": "ADD U3 ..."}  
+- {"input": "", "output": "ADD C14 ..."}  
+-   
+- and:  
+- input \= ADD U3 ...  
+- output \= ADD U1 ...  
+-   
+- but elsewhere:  
+- input \= ADD U3 ...  
+- output \= ADD J1 ...  
+-   
+- For SFT, that is contradictory supervision. A big model can maybe learn “many things are valid next,” but a tiny model will get mushy. Either keep one ordering per schematic, or add something like:
+
+No solution
+
+Issue \#3  
+UUIDs cloud the LLM model  
+ my worry is if i remove UUIDs i cannot do the inference on the frontend UI to actually do connections. cuz how will it know 
+
+do we do this?
+
+Make refs canonical before training:
+
+U\_USB\_UART
+
+U\_MCU
+
+J\_USB
+
+R\_RST\_PULLUP
+
+C\_3V3\_DEC\_1
+
+in that case we can remove UUIDs from the training data right cuz we can always back match it 
+
+codex://threads/019e3c47-aaf0-7ca1-8126-026897d3cd4e
+
+We can basically remove UUIds
 
 # Training
 
--- question: how to reward not even if took a path that is plausible? Multiple correct answers?
+\-- question: how to reward not even if took a path that is plausible? Multiple correct answers?  
 We use
 
-Consider the LLM vs GNN model
-GAT / only subgraph with distance 3 of touched
--> also what is our node/edge structure looking like: holding how recently touched asw
-We can have a score on each node OR edge (since you couldve last done a item or connection) of how recently edited. We can also have score on last selected item as is\_selected = true on the node
+Consider the LLM vs GNN model  
+GAT / only subgraph with distance 3 of touched  
+→ also what is our node/edge structure looking like: holding how recently touched asw  
+We can have a score on each node OR edge (since you couldve last done a item or connection) of how recently edited. We can also have score on last selected item as is\_selected \= true on the node
 
 Size generation issue
 
-LLM density / vram issue
-Context window
-Inferenc epseed
-Training cost
-Time till first token
-Low latency
+LLM density / vram issue  
+Context window  
+Inferenc epseed  
+Training cost  
+Time till first token  
+Low latency  
 Try to run on device
 
 Last 3 actions touched could be useful
 
-Interesting thought here
-[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals](https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals)
-[https://cursor.com/blog/tab-rl](https://cursor.com/blog/tab-rl)
-Cursor basically uses a 2nd model to predict if it will be accepted or not
-And a first model to predict users next move
+Interesting thought here   
+[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals](https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals)  
+[https://cursor.com/blog/tab-rl](https://cursor.com/blog/tab-rl)  
+Cursor basically uses a 2nd model to predict if it will be accepted or not   
+And a first model to predict users next move  
 Since its hard to train 1st model to NOT predict sometimes
 
---> gnn might solve issue of text representing schematic poorly, + how physical ordering doesnt matter of items, only connections matter
+\--\> gnn might solve issue of text representing schematic poorly, \+ how physical ordering doesnt matter of items, only connections matter
 
 1. And how to get GNN to guess what to add and what to connect (2 diff things , edge predict vs node predict)
 
@@ -654,20 +1057,45 @@ Faster inference, more accurate since problem is basically graph rpoblem
 
 If we went LLM route:
 
-1. Have high KV cache since the current state will be repeated or 90% similar each time
-2. We can have speculative decoding like how morph does it using OG code as predictive if we use LLM since most of the map will remain the same (this is LLM with regen full map case only)
+1. Have high KV cache since the current state will be repeated or 90% similar each time  
+2. We can have speculative decoding like how morph does it using OG code as predictive if we use LLM since most of the map will remain the same (this is LLM with regen full map case only)  
 3. Can we get tiny enough model to run on device? Or run extremely fast?
 
-Caching only do inference when new state
+Caching only do inference when new state  
 Only generate diffs
 
 Speculative speculative chain on next thing as soon as high likely accept suggestion shown
 
-Online RL
+Online RL  
 Out model just predicts next action, we algoritmicslaly figure out UI / best place to place it
 
-Need to be blazingly fast (<100ms latency)
+Need to be blazingly fast (\<100ms latency)
 
-*/ }),
+# Questions to ask tejas
+
+So we are currently doing this:
+
+1. Taking complete kicad\_sch files, stripping away everything non-essential (labels, metadata, x,y coords)  
+2. Generating a deterministic lineage, ie:
+
+   ADD component x  
+   CONNECT pin x to pin y  
+   ADD ..  
+   Etc etc  
+   
+
+Thinking of getting an LLM to gen human-likely lineage ordering of the above (what can be reordered safely, what is likely to come before something else, how much to batch certain stuff, what stuff goes together)
+
+Then we can permutate all the elements that can be reordered to cover all training examples / generalize? Or should we do like different loss function or RL in which it gets reward for all correct answers? Effect on the final output being ‘human-like’? 
+
+The issue is multiple human-likely lineages exist and are valid so not sure how to account for all that.
+
+Another question is the actual model \-- thinking of GNN because the graph can model the connections and elements on a schematic perfectly compared to LLM (line-by-line generalization issue). Then we can do smth like give more weight to the edges/nodes that are more recently touched/actioned by user.
+
+# Ideas 
+
+\-- train github commits to help w augmenting progress
+
+* path:\*.kicad\_sch*/ }),
   },
 ];
