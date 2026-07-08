@@ -8,6 +8,18 @@ const slugify = (value) =>
 
 const getPostId = (post) => post.slug ?? slugify(post.title);
 
+const getRequestedPostId = () => {
+  const queryId = new URLSearchParams(window.location.search).get("id");
+
+  if (queryId) {
+    return queryId;
+  }
+
+  const pathMatch = window.location.pathname.match(/^\/post\/([^/]+)\/?$/);
+
+  return pathMatch ? decodeURIComponent(pathMatch[1]) : null;
+};
+
 const formatDate = (dateValue) => {
   const date = new Date(`${dateValue}T00:00:00`);
 
@@ -667,7 +679,7 @@ const renderArticlePage = () => {
     return;
   }
 
-  const selectedId = new URLSearchParams(window.location.search).get("id");
+  const selectedId = getRequestedPostId();
   const post = posts.find((candidate) => getPostId(candidate) === selectedId);
 
   if (!post) {

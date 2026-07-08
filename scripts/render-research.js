@@ -71,7 +71,7 @@ const renderResearchPage = () => {
       title: post.title,
       date: post.date,
       category: post.category,
-      href: `./post.html?id=${encodeURIComponent(getPostId(post))}`,
+      href: `/post/${encodeURIComponent(getPostId(post))}`,
     }));
 
   const researchPosts = visiblePosts.filter((post) => post.category !== "Engineering");

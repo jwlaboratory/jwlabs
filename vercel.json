@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/post/:slug", "destination": "/post.html" }
+  ]
+}
