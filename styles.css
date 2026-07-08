@@ -548,6 +548,10 @@ body[data-page="article"] .site-footer {
   color: var(--text);
 }
 
+.blog-content .katex-display {
+  margin: 40px 0;
+}
+
 .blog-content figure {
   margin: 28px 0;
   text-align: center;
