@@ -714,6 +714,23 @@ const renderArticlePage = () => {
     .append(renderMarkdown(bodyMarkdown, post, headingIds));
   postRoot.append(postNode);
   buildTableOfContents(postRoot);
+  renderMathInPost(postRoot);
+};
+
+const renderMathInPost = (root) => {
+  if (typeof window.renderMathInElement !== "function") {
+    return;
+  }
+
+  window.renderMathInElement(root, {
+    delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "$", right: "$", display: false },
+      { left: "\\(", right: "\\)", display: false },
+      { left: "\\[", right: "\\]", display: true },
+    ],
+    throwOnError: false,
+  });
 };
 
 renderListPage();

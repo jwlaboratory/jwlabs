@@ -64,18 +64,25 @@ const renderResearchPage = () => {
     href: item.href ?? null,
   }));
 
-  const researchPosts = [...posts]
+  const visiblePosts = [...posts]
+    .filter((post) => !post.hidden)
     .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`))
     .map((post) => ({
       title: post.title,
       date: post.date,
+      category: post.category,
       href: `./post.html?id=${encodeURIComponent(getPostId(post))}`,
     }));
 
-  const engineering = (siteContent.engineering ?? []).map((item) => ({
-    ...item,
-    href: item.href ?? null,
-  }));
+  const researchPosts = visiblePosts.filter((post) => post.category !== "Engineering");
+
+  const engineering = [
+    ...(siteContent.engineering ?? []).map((item) => ({
+      ...item,
+      href: item.href ?? null,
+    })),
+    ...visiblePosts.filter((post) => post.category === "Engineering"),
+  ];
 
   renderSection("announcements-section", "announcements-list", announcements);
   renderSection("research-section", "research-list", researchPosts);
