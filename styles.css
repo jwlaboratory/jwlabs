@@ -550,6 +550,8 @@ body[data-page="article"] .site-footer {
 
 .blog-content .katex-display {
   margin: 40px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .blog-content figure {
