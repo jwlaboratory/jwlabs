@@ -1114,8 +1114,6 @@ By: Shrey Birmiwal
 
 # Abstract
 
-![][image1]
-
 In this blog, I'm going to try to explain speculative decoding in simple language by walking through the history of speculative decoding papers, because I think speculative decoding is really, really cool and isn't talked about enough. I'm going to try to share the current state of speculative decoding and what's possible next.
 
 **TLDR:** Speculative decoding allows you to get up to 8x speedups on LLM workloads completely lossless, and is pretty close to a free lunch in inference.
