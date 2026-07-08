@@ -20,16 +20,6 @@ const getRequestedPostId = () => {
   return pathMatch ? decodeURIComponent(pathMatch[1]) : null;
 };
 
-const formatDate = (dateValue) => {
-  const date = new Date(`${dateValue}T00:00:00`);
-
-  return new Intl.DateTimeFormat("en", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(date);
-};
-
 const formatBlogDate = (dateValue) => {
   const date = new Date(`${dateValue}T00:00:00`);
 
@@ -335,7 +325,7 @@ const resolveImageSource = ({ explicitSrc, referenceKey, references, post }) => 
   }
 
   const fallbackSrc = references[referenceKey.toLowerCase()];
-  const localSrc = `./content/${getPostId(post)}/${referenceKey}.png`;
+  const localSrc = `/content/${getPostId(post)}/${referenceKey}.png`;
 
   return {
     src: localSrc,
@@ -521,41 +511,6 @@ const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) =>
   }
 
   return fragment;
-};
-
-const renderListPage = () => {
-  const postsRoot = document.querySelector("#posts");
-  const template = document.querySelector("#post-template");
-
-  if (!postsRoot || !template) {
-    return;
-  }
-
-  if (posts.length === 0) {
-    const emptyState = document.createElement("p");
-    emptyState.className = "empty-state";
-    emptyState.textContent = "No posts yet.";
-    postsRoot.append(emptyState);
-    return;
-  }
-
-  const postsByMostRecent = [...posts].sort(
-    (a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`),
-  );
-
-  postsByMostRecent.forEach((post) => {
-    const postNode = template.content.cloneNode(true);
-    const link = postNode.querySelector(".post-title-link");
-
-    postNode.querySelector("time").dateTime = post.date;
-    postNode.querySelector("time").textContent = formatDate(post.date);
-    postNode.querySelector(".category").textContent = post.category;
-    postNode.querySelector(".summary").textContent = post.summary;
-    link.href = `./post.html?id=${encodeURIComponent(getPostId(post))}`;
-    link.textContent = post.title;
-
-    postsRoot.append(postNode);
-  });
 };
 
 const buildTableOfContents = (articleRoot) => {
@@ -745,5 +700,4 @@ const renderMathInPost = (root) => {
   });
 };
 
-renderListPage();
 renderArticlePage();
