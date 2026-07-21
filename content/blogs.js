@@ -1353,13 +1353,15 @@ Thanks for reading! Thanks to [@tejasybhakta](https://x.com/tejasybhakta) and [@
 
 # Infer-Sim: An open-source simulator for routing algorithms and cache policies for inference workloads
 
+By: Shrey Birmiwal
+
 # Motivation
 
 ![Infer-Sim interface][image1]
 
-One of the biggest problems I noticed during my time at Morph was how difficult it was to test different theories regarding inference optimizations. Testing a new theory often meant pushing your code to prod and monitoring for days before knowing if your changes improved. Secondly, it was hard to see bottlenecks because raw logs are hard to visualize, meaning it is easy to miss, for example, a queue build-up, or pinpoint why your TTFT/latency is spiking.
+One of the biggest problems I noticed during my time at Morph was how difficult it was to test different theories about inference optimizations. Testing a new theory often meant pushing your code to prod and monitoring for days before knowing whether your changes helped. Second, it was hard to see bottlenecks because raw logs are hard to visualize, meaning it is easy to miss, for example, a queue build-up, or pinpoint why your TTFT/latency is spiking.
 
-This is because you often need live traffic patterns to stress test your theories. In other words, it's very hard to backtest due to the sheer amount of tunable parameters in inference engines and the complex relationship they have between them.
+This is because you often need live traffic patterns to stress test your theories. In other words, it's very hard to backtest due to the sheer number of tunable parameters in inference engines and the complex relationships among them.
 
 The goal of this lightweight simulator is to emulate and quickly test different configurations. You can tune any of the following:
 
@@ -1367,7 +1369,7 @@ The goal of this lightweight simulator is to emulate and quickly test different 
 2. LLM model, quantization, parameters, layers, etc
 3. Batch size
 4. Router policy (cache-aware, custom, round robin, etc)
-5. Your GPU cluster and configuration (custom specs supported, of bandwidths and FLOPs)
+5. Your GPU cluster and configuration (custom specs supported, including bandwidths and FLOPs)
 
 You can visualize any of the following:
 
