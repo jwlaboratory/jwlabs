@@ -1365,15 +1365,15 @@ This is because you often need live traffic patterns to stress test your theorie
 
 The goal of this lightweight simulator is to emulate and quickly test different configurations. You can tune any of the following:
 
-1. Mooncake-compatible trace dataset and speed/frequency of query arrivals
-2. LLM model, quantization, parameters, layers, etc
+1. Mooncake compatible trace dataset and speed and frequency of query arrivals
+2. LLM model quantization parameters layers etc
 3. Batch size
-4. Router policy (cache-aware, custom, round robin, etc)
-5. Your GPU cluster and configuration (custom specs supported, including bandwidths and FLOPs)
+4. Router policy cache aware custom round robin etc
+5. Your GPU cluster and configuration custom specs supported including bandwidths and FLOPs
 
 You can visualize any of the following:
 
-1. Mean and p95 latency, TTFT
+1. Mean and p95 latency TTFT
 2. Cache hits
 3. Node utilization
 4. Replay the GPU routing decisions
@@ -1438,10 +1438,10 @@ cache_load_time = kv_bytes / tier_bandwidth
 
 Different tiers use different bandwidths:
 
-- HBM is effectively local;
-- host RAM uses PCIe bandwidth;
-- peer cache uses RDMA bandwidth;
-- disk uses local disk bandwidth.
+- HBM is effectively local
+- host RAM uses PCIe bandwidth
+- peer cache uses RDMA bandwidth
+- disk uses local disk bandwidth
 
 ## GPU Cluster
 
