@@ -1400,10 +1400,10 @@ Prompts are represented as blocks. Two requests share a prefix when their leadin
 
 For each request, the simulator finds the longest cached prefix available from:
 
-- local HBM;
-- local host RAM;
-- peer node over RDMA;
-- disk.
+- local HBM
+- local host RAM
+- peer node over RDMA
+- disk
 
 It uses the cached prefix only when loading it is faster than recomputing it.
 
