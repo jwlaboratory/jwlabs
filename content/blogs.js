@@ -1343,4 +1343,144 @@ Thanks for reading! Thanks to [@tejasybhakta](https://x.com/tejasybhakta) and [@
 
 */ }),
   },
+  {
+    slug: "infer-sim",
+    title: "Infer-Sim: An open-source simulator for routing algorithms and cache policies for inference workloads",
+    date: "2026-07-21",
+    category: "Engineering",
+    summary: "A lightweight simulator for replaying inference workloads, testing routing and cache policies, and visualizing latency, TTFT, utilization, cache hits, and queue behavior before pushing changes to production.",
+    markdown: markdown(() => { /*
+
+# Infer-Sim: An open-source simulator for routing algorithms and cache policies for inference workloads
+
+# Motivation
+
+![Infer-Sim interface][image1]
+
+One of the biggest problems I noticed during my time at Morph was how difficult it was to test different theories regarding inference optimizations. Testing a new theory often meant pushing your code to prod and monitoring for days before knowing if your changes improved. Secondly, it was hard to see bottlenecks because raw logs are hard to visualize, meaning it is easy to miss, for example, a queue build-up, or pinpoint why your TTFT/latency is spiking.
+
+This is because you often need live traffic patterns to stress test your theories. In other words, it's very hard to backtest due to the sheer amount of tunable parameters in inference engines and the complex relationship they have between them.
+
+The goal of this lightweight simulator is to emulate and quickly test different configurations. You can tune any of the following:
+
+1. Mooncake-compatible trace dataset and speed/frequency of query arrivals
+2. LLM model, quantization, parameters, layers, etc
+3. Batch size
+4. Router policy (cache-aware, custom, round robin, etc)
+5. Your GPU cluster and configuration (custom specs supported, of bandwidths and FLOPs)
+
+You can visualize any of the following:
+
+1. Mean and p95 latency, TTFT
+2. Cache hits
+3. Node utilization
+4. Replay the GPU routing decisions
+5. Backlog queue
+6. Peak queue size
+
+# How we approximated each variable
+
+## Requests
+
+Requests are replayed from a Mooncake-compatible trace format. Each row includes arrival time, input length, output length, and prefix block hashes.
+
+The arrival gaps can be scaled to stress the system:
+
+```text
+arrival_time = recorded_arrival_time * ARRIVAL_SCALE
+```
+
+Lower arrival scale means a hotter replay. Higher arrival scale means a calmer replay.
+
+## Prefix Cache
+
+Prompts are represented as blocks. Two requests share a prefix when their leading block hashes match.
+
+For each request, the simulator finds the longest cached prefix available from:
+
+- local HBM;
+- local host RAM;
+- peer node over RDMA;
+- disk.
+
+It uses the cached prefix only when loading it is faster than recomputing it.
+
+## Prefill
+
+Prefill is modeled as compute-bound:
+
+```text
+prefill_time = 2 * active_params * tokens / (flops * MFU)
+```
+
+This captures the intuition that long prompts are expensive because the model has to process every input token.
+
+## Decode
+
+Decode is modeled as memory-bound across the active batch:
+
+```text
+decode_step_time =
+  (active_weight_bytes + batch_kv_bytes) / (hbm_bandwidth * MBU)
+```
+
+The active weights are read once for the batch, while each sequence contributes KV traffic.
+
+## Cache Movement
+
+Cache movement is modeled as bandwidth-bound:
+
+```text
+cache_load_time = kv_bytes / tier_bandwidth
+```
+
+Different tiers use different bandwidths:
+
+- HBM is effectively local;
+- host RAM uses PCIe bandwidth;
+- peer cache uses RDMA bandwidth;
+- disk uses local disk bandwidth.
+
+## GPU Cluster
+
+Each node is a group of GPUs serving together with tensor parallelism. Compute, HBM bandwidth, HBM capacity, RAM bandwidth, RDMA bandwidth, and disk bandwidth are aggregated across the GPUs in the node.
+
+Nodes are independent serving replicas. Each node must fit the model in its combined HBM.
+
+## Queueing And Batching
+
+Each node has a queue. Requests wait until they can be admitted. Decode runs as a continuous batch up to `MAX_BATCH`.
+
+Prefill pauses decode in the current model, which approximates prefill-prioritizing schedulers and makes prefill/queue interactions visible.
+
+# Try it now
+
+Please try it out and share your feedback with us. We would also love extensions to the open-source repository.
+
+Live demo: [inference-sim.vercel.app](https://inference-sim.vercel.app/)
+
+GitHub: [jwlaboratory/inference-sim](https://github.com/jwlaboratory/inference-sim)
+
+Quickstart:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python server.py
+```
+
+Open:
+
+```text
+http://localhost:8000
+```
+
+Or run the CLI:
+
+```bash
+python3 simulate.py
+```
+
+*/ }),
+  },
 ];
