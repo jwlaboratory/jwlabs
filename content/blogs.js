@@ -1535,7 +1535,7 @@ The cost of regenerating the KV depends on the length of the prefix that was mat
 | RAM (host, PCIe) | 0.75 | 1.49 | 2.98 | 11.9 | 23.8 | 47.7 | 48x faster |
 | HBM (local floor) | 0.012 | 0.024 | 0.049 | 0.20 | 0.39 | 0.78 | 2919x faster |
 
-![Log-scale latency chart showing prefill, disk, RDMA, RAM, and HBM costs as matched prefix length grows.](/content/biting-the-bullet/prefill-transfer-chart.png)
+![Bar chart at an 8k-token prefix showing prefill, disk, RDMA, RAM, and HBM costs.](/content/biting-the-bullet/prefill-transfer-chart.png)
 
 Clearly, prefill is much more expensive than keeping KV cache ready. This gives us the motivation: if we can see a burst incoming, it would be much faster to prewarm it with already computed KV.
 
@@ -1632,8 +1632,6 @@ The prototype has four constants:
 
 In words: if the same Y-block prefix arrives X times within Z seconds, BTB marks that prefix as active. It then tries to copy the existing KV for that prefix to M least-loaded replicas that do not already hold it. Later requests with the same prefix are routed to the least-loaded warm replica instead of all queueing on one cache-owning node or spreading blindly to cold nodes.
 
-M means serving replicas, not individual GPUs. A replica might be 4 or 8 GPUs doing tensor parallelism together, so one warmed copy is sharded across the GPUs inside that replica. In our main runs, M=4 warms four separate serving replicas.
-
 The detector is reactive. The first request for a brand-new prefix still has to create the KV somewhere. BTB only helps after enough evidence appears that more same-prefix requests are likely. This is why BTB can improve the mean TTFT a lot while still leaving the very first cold request untouched.
 
 The prototype has three gates. The prefix gate only considers a prefix if it has at least Y blocks, so short shared system prompts are ignored. The burst gate keeps a trailing Z-second history for each prefix and fires once the count reaches X. The replica gate warms only replicas that do not already have the prefix and are among the least loaded targets.
@@ -1690,39 +1688,15 @@ This is important because it means the fixed rule does not constantly perturb or
 
 # Future Ideas
 
-The two biggest caveats are that these results are from [Infer-Sim](/post/infer-sim) and from our [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART) dataset. That is a useful place to test the mechanism, but it is not the same as running inside a production serving stack with real queues, real scheduler behavior, real cache pressure, real RDMA contention, and messy product traffic. The next real test is live production traffic, ideally behind a shadow router first and then a small canary.
+1. We used [Infer-Sim](/post/infer-sim) and the [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART) dataset, which includes synthetic bursts. This was great for testing the mechanism, but the next step is to test BTB in a production serving stack with real inference requests, real queues, real scheduler behavior, and real cache pressure.
 
-We also want to try policies that create KV even when it does not already exist on another replica.
+2. Speculative prefill. The idea here is to predict the burst before any requests actually arrive, then spend idle compute to start prefilling the shared prefix on extra replicas. Unlike RDMA warming, this does not require KV to already exist somewhere. This can be better because it could spin up new KV earlier, but it can also be worse because false positives spend real compute. One version we tested was partial fake prefill: instead of prefilling the entire shared prefix, prefill a certain percentage of it or prefill in chunks.
 
-## Speculative Prefill
+3. More cache actions beyond replicate, such as pin, evict, demote, and promote.
 
-Speculative prefill means predicting a burst before the actual requests arrive, then spending idle compute to prefill the shared prefix on extra replicas. Unlike RDMA warming, this does not require the KV to already exist elsewhere. It is more powerful, but it can also be more dangerous: a false positive burns foreground compute and can interfere with decode.
+4. Make detection thresholds adaptive to burst size, queue load, and cache pressure.
 
-The rule we want is not "always prefill the full prompt." It should be: estimate the lead time, estimate the expected burst size, estimate available idle prefill capacity, and only prefill the depth that can finish before the burst arrives.
-
-## Partial Fake Prefill
-
-Partial fake prefill is a softer version. Instead of precomputing the entire shared prefix, warm only the first N tokens. A later real request still recomputes the rest, but the partial KV is enough to make more replicas cache-affine and reduce the cold prefill each one has to pay.
-
-In a preliminary simulator-only synthetic labeling burst, cache-aware had 10.00s mean TTFT and 14.49s p95 TTFT. Half-prefix warming was often a better tradeoff than full-prefix warming when the predictor was noisy:
-
-| Policy | Predictor precision / recall | Delta mean TTFT | Delta p95 TTFT | Warm GB | Warm busy (s) |
-| --- | --- | --- | --- | --- | --- |
-| 32k partial prefill | 1.00 / 1.00 | -5.38s | -6.25s | 343.6 | 74.9s |
-| 65k full prefill | 1.00 / 1.00 | -5.88s | -4.41s | 687.2 | 149.7s |
-| 32k partial prefill | 0.50 / 1.00 | -5.31s | -5.61s | 687.2 | 149.7s |
-| 65k full prefill | 0.50 / 1.00 | -4.42s | -1.46s | 1374.4 | 299.4s |
-| 32k partial prefill | 0.25 / 1.00 | -3.29s | +0.27s | 1374.4 | 299.4s |
-| 65k full prefill | 0.25 / 1.00 | +8.24s | +27.29s | 2748.8 | 598.8s |
-
-The takeaway is that full-prefix prefill is best only when prediction is very accurate and the system has enough idle capacity. Partial prefill gives up some maximum upside, but it caps false-positive damage much better.
-
-Other next steps:
-
-- add cache actions beyond replicate, such as pin, evict, demote, and promote
-- make the detection thresholds adaptive to expected burst size, current queue load, and cache pressure
-- test agentic workloads where subagents share a long document but produce longer outputs
-- compare RDMA warming, speculative prefill, and partial prefill under the same production replay harness
+5. Use the actual user query as a hint for when bursts are coming. For example, the router could look at whether the request includes a system prompt that looks like a data labeling job, a batch extraction job, or another prompt that is likely to be reused many times.
 
 # Appendix: Reproducing Bursted-ART
 
