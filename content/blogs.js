@@ -1359,19 +1359,17 @@ By: Shrey Birmiwal
 
 ![Infer-Sim interface][image1]
 
-One of the biggest problems I noticed during my time at Morph was how difficult it was to test different theories about inference optimizations. Testing a new theory often meant pushing your code to prod and monitoring for days before knowing whether your changes helped. Second, it was hard to see bottlenecks because raw logs are hard to visualize, meaning it is easy to miss, for example, a queue build-up, or pinpoint why your TTFT/latency is spiking.
+During my time at Morph, one recurring problem was how hard it was to test ideas for inference optimization. Trying a new routing or caching theory often meant pushing code to production, then waiting days to see whether latency improved. Raw logs also made bottlenecks difficult to understand; it was easy to miss a growing queue or struggle to pinpoint why TTFT or latency spiked.
 
-This is because you often need live traffic patterns to stress test your theories. In other words, it's very hard to backtest due to the sheer number of tunable parameters in inference engines and the complex relationships among them.
+Many inference behaviors only show up under realistic live traffic patterns. That makes them hard to backtest, because inference engines have many tunable parameters and those parameters interact in complex ways.
 
 The goal of this lightweight simulator is to emulate and quickly test different configurations. You can tune any of the following:
 
-We also used Infer-Sim as the testbed for the Bite the Bullet experiments on predictive KV warming, where the goal was to check whether warming shared prefixes before a burst can reduce TTFT.
-
-1. Mooncake compatible trace dataset and speed and frequency of query arrivals
-2. LLM model quantization parameters layers etc
+1. Mooncake compatible trace dataset and query arrival rate
+2. LLM model settings such as quantization parameters and layers
 3. Batch size
-4. Router policy cache aware custom round robin etc
-5. Your GPU cluster and configuration custom specs supported including bandwidths and FLOPs
+4. Router policy such as cache aware custom and round robin
+5. GPU cluster configuration including custom bandwidth and FLOP specs
 
 You can visualize any of the following:
 
@@ -1491,7 +1489,7 @@ python3 simulate.py
     slug: "biting-the-bullet",
     title: "Biting the Bullet: Predictive Speculative KV Replication for Bursty LLM Inference",
     date: "2026-07-22",
-    category: "Engineering",
+    category: "Research",
     summary: "Predictive KV warming for bursty LLM inference workloads, using Infer-Sim to test when proactively replicating shared prefix cache can cut TTFT versus cache-aware routing.",
     markdown: markdown(() => { /*
 
