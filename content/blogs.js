@@ -1505,17 +1505,17 @@ TLDR: When serving inference to production users, you often see sudden spikes of
 
 When an inference server receives an LLM request, it first hits a router such as SGLang Model Gateway or Dynamo, which decides which cluster to send its request to based on a routing policy. Then it hits a queue in that particular cluster, which may be one GPU or a tensor-parallel group of GPUs serving the same copy of one model.
 
-![Router layer sending requests to GPU clusters.](/content/biting-the-bullet/router-overview.png)
+![Router layer sending requests to GPU clusters](/content/biting-the-bullet/router-overview.png)
 
 You next need to understand KV cache management. In LLM generation, every request is a sequence of words. As long as two requests have the exact same prefix, they can reuse a lot of the computed math (the KV). It is important to note that the prefix must match exactly, so even a single token difference near the start of a request will break the KV cache.
 
-![Two requests can share KV only when their prefix matches exactly.](/content/biting-the-bullet/prefix-cache.png)
+![Two requests can share KV only when their prefix matches exactly](/content/biting-the-bullet/prefix-cache.png)
 
 This shared prefix is called the prefix KV cache. For Llama-3.3-70B, it is about 320 KiB per token, so even a 1,000-token cached prefix is roughly 320 MiB of KV. Typically, the system prompt and initial definitions are cached and heavily reused across many users.
 
 This prefix KV can be stored in a few different places. First, it can be stored in GPU HBM, which is the fastest to access. It can also be stored in host RAM, which is the CPU RAM connected to multiple GPUs. Finally, it can be stored on disk or NVMe, which is the slowest tier and may be shared across multiple clusters. RDMA is a special data-transfer method that allows one node's GPU to access and directly read from another GPU's HBM, bypassing CPU and OS overhead, which makes it very fast. This is what BTB uses to quickly preload another GPU with the cache it needs.
 
-![Memory tiers and transfer paths for shared KV.](/content/biting-the-bullet/memory-tiers.png)
+![Memory tiers and transfer paths for shared KV](/content/biting-the-bullet/memory-tiers.png)
 
 | Tier | Per-GPU (datasheet) | Per-node (x4) | Role |
 | --- | --- | --- | --- |
@@ -1535,7 +1535,7 @@ The cost of regenerating the KV depends on the length of the prefix that was mat
 | RAM (host, PCIe) | 0.75 | 1.49 | 2.98 | 11.9 | 23.8 | 47.7 | 48x faster |
 | HBM (local floor) | 0.012 | 0.024 | 0.049 | 0.20 | 0.39 | 0.78 | 2919x faster |
 
-![8k token prefix has the highest cost with prefilling, then disk, then RDMA, then RAM, then HBM.](/content/biting-the-bullet/prefill-transfer-chart.png)
+![8k token prefix has the highest cost with prefilling, then disk, then RDMA, then RAM, then HBM](/content/biting-the-bullet/prefill-transfer-chart.png)
 
 Clearly, prefill is much more expensive than keeping KV cache ready. This gives us the motivation: if we can see a burst incoming, it would be much faster to prewarm it with already computed KV.
 
@@ -1549,11 +1549,11 @@ The router selects the GPU with the lowest load (lowest incoming flight of reque
 
 The best case is when many unrelated requests get evenly spread out, preventing any node hot spots.
 
-![Least-load, best case: unrelated requests spread across replicas, so queues stay balanced.](/content/biting-the-bullet/least-load-best.mp4)
+![Least-load, best case: unrelated requests spread across replicas, so queues stay balanced](/content/biting-the-bullet/least-load-best.mp4)
 
 The worst case is when a burst of same-prefix requests gets scattered across cold nodes, so none hit cached KV and each node has to do a full prefill.
 
-![Least-load, worst case: the same-prefix burst scatters across cold replicas, so each replica recomputes the prefix.](/content/biting-the-bullet/least-load-worst.mp4)
+![Least-load, worst case: the same-prefix burst scatters across cold replicas, so each replica recomputes the prefix](/content/biting-the-bullet/least-load-worst.mp4)
 
 ## Cache Aware
 
@@ -1561,11 +1561,11 @@ Cache-aware routing sends a request to the replica with the best prefix-cache ma
 
 The best case is a steady trickle of similar-prefix requests, similar to many agentic chats, because each request keeps reusing the KV left warm by the previous request.
 
-![Cache-aware, best case: similar-prefix requests reuse the warm KV cache without building a large queue.](/content/biting-the-bullet/cache-aware-best.mp4)
+![Cache-aware, best case: similar-prefix requests reuse the warm KV cache without building a large queue](/content/biting-the-bullet/cache-aware-best.mp4)
 
 The worst case is a burst of same-prefix requests. Cache affinity pulls the whole burst toward the replica with the KV warm, which keeps a high cache hit rate but grows the queue size.
 
-![Cache-aware, worst case: the burst piles onto the warm replica and a queue builds up while other replicas sit idle.](/content/biting-the-bullet/cache-aware-worst.mp4)
+![Cache-aware, worst case: the burst piles onto the warm replica and a queue builds up while other replicas sit idle](/content/biting-the-bullet/cache-aware-worst.mp4)
 
 In both routers, you can see how a burst of same-prefix requests causes issues that hurt the end-user experience. In least-load routing, you are not utilizing the KV you already created. In cache-aware routing, bursts cause you to build up a huge queue.
 
@@ -1606,13 +1606,15 @@ The algorithm works like this: if the same Y-block-length prefix arrives X times
 
 If the prefix is too short, the burst count has not fired, or no resident copy exists yet, BTB falls back to the normal cache-aware router. The animation below shows how BTB gets triggered and warms other GPUs as a burst comes in.
 
-![Biting the Bullet: the router detects the repeated prefix, warms peer replicas over RDMA, then spreads later burst requests across warm queues.](/content/biting-the-bullet/biting-the-bullet.mp4)
+![Biting the Bullet: the router detects the repeated prefix, warms peer replicas over RDMA, then spreads later burst requests across warm queues](/content/biting-the-bullet/biting-the-bullet.mp4)
 
 The best-case scenario is a sustained same-prefix burst where the first few requests reveal the pattern and the rest of the burst arrives after RDMA copies have finished. In that case, BTB keeps the cache-hit benefit of cache-aware routing, but gives the burst multiple warm queues instead of one hot queue.
 
 The worst-case scenario is a burst that is too short, arrives too quickly, or starts from a brand-new prefix. BTB cannot warm KV that does not exist yet, so the first cold request still pays prefill. If the model is extremely compute-heavy, or if the burst ends before copies finish, warming helps less.
 
 The results were extremely positive on the Bursted-ART dataset:
+
+Note: these are simulated results from Infer-Sim using the Bursted-ART workload, not live production traffic.
 
 | setup | CA mean | CA p95 | BTB mean | BTB p95 | mean speedup | p95 speedup |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1625,7 +1627,7 @@ The results were extremely positive on the Bursted-ART dataset:
 
 The result speedup is shown below:
 
-![Mean TTFT for cache-aware routing versus early RDMA warming.](/content/biting-the-bullet/results.png)
+![Mean TTFT for cache-aware routing versus early RDMA warming](/content/biting-the-bullet/results.png)
 
 # Future Work
 
