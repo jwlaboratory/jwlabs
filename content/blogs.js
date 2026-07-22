@@ -1365,6 +1365,8 @@ This is because you often need live traffic patterns to stress test your theorie
 
 The goal of this lightweight simulator is to emulate and quickly test different configurations. You can tune any of the following:
 
+We also used Infer-Sim as the testbed for the Bite the Bullet experiments on predictive KV warming, where the goal was to check whether warming shared prefixes before a burst can reduce TTFT.
+
 1. Mooncake compatible trace dataset and speed and frequency of query arrivals
 2. LLM model quantization parameters layers etc
 3. Batch size
