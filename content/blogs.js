@@ -1585,15 +1585,11 @@ After going through them, we found two different problems. Some datasets did not
 
 We hypothesize this happens because public traces are often made from toy/demo traffic, chat tools, or internal employee coding/chat workloads. These traces are useful, but they do not fully cover real enterprise LLM workloads like data labeling, parsing PDFs, batch extraction, or sub-agent fanout, where many requests can share the same long prompt or document. That is what motivated us to create our own dataset, Bursted-ART.
 
-We built Bursted-ART by starting from the original [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M) replay windows, keeping normal ART traffic intact, and adding synthetic windows with synchronized long-prefix bursts. The goal was not to replace ART, but to create a stress test for the same-prefix fanout case that public traces barely contain.
-
-Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
-
-Original ART dataset: [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M)
-
 ## How We Built Bursted-ART
 
 Bursted-ART keeps complete ART trace windows intact and adds synthetic windows with synchronized long-prefix bursts. We split by complete trace window, not by individual row, so a burst cannot leak neighboring requests across train and test.
+
+We built Bursted-ART by starting from the original [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M) replay windows, keeping normal ART traffic intact, and adding synthetic windows with synchronized long-prefix bursts. The goal was not to replace ART, but to create a stress test for the same-prefix fanout case that public traces barely contain.
 
 Each synthetic window is meant to model a data labeling job, batch scoring job, or sub-agent fanout:
 
@@ -1610,6 +1606,10 @@ The decoys matter because we do not want a detector that fires on any repeated p
 The generated rows keep the request-level fields Infer-Sim needs: arrival time, input length, output length, prefix block hashes, request/session/group IDs, source, trace ID, and metadata. ART rows keep their original prefix hashes. Synthetic rows create explicit shared `hash_ids` for the common prefix and unique suffix blocks for each request.
 
 The current split is 10 train windows and 30 test windows, or 25,600 train rows and 76,800 test rows. The exact generation command and code links are in the appendix at the bottom.
+
+Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
+
+Original ART dataset: [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M)
 
 # Biting the Bullet
 
@@ -1653,9 +1653,7 @@ The result speedup is shown below:
 
 ![Mean TTFT for cache-aware routing versus early RDMA warming.](/content/biting-the-bullet/results.png)
 
-The result is strongest when the prefix is expensive enough to matter and the rest of the burst arrives after the first few detections. The 70B setup is a good example of the limitation: mean TTFT drops sharply, but p95 is flat because the p95 request is often the first cold request in a burst. BTB cannot copy KV that does not exist yet. The dense1t/B300 setup has the opposite problem: the model is so compute-heavy that TTFT is dominated by raw prefill and queueing even after routing improves, so warming buys less.
-
-# Future Ideas
+# Future Work
 
 1. We used [Infer-Sim](/post/infer-sim) and the [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART) dataset, which includes synthetic bursts. This was great for testing the mechanism, but the next step is to test BTB in a production serving stack with real inference requests, real queues, real scheduler behavior, and real cache pressure.
 
