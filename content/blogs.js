@@ -1497,19 +1497,21 @@ python3 simulate.py
 
 By: Shrey Birmiwal and Anish Bhat
 
-TLDR: When dealing with bursty LLM inference requests, you often get spikes of very similar prefix KV requests. We argue that 1) this isn't represented in current datasets, and 2) current GPU routing algorithms falter under this environment. We share Biting the Bullet (BTB), which predicts large bursts and proactively replicates prefix cache from RDMA into GPU HBM before the burst lands. BTB cuts mean time to first token by 10-60% versus SGLang's default cache-aware router.
+GitHub: [jwlaboratory/bite-the-bullet](https://github.com/jwlaboratory/bite-the-bullet)
+
+TLDR: Bursty LLM inference can create sudden spikes of requests with the same long prefix. Public traces barely capture this pattern, and common routers behave awkwardly when it appears: least-load routing wastes KV by scattering requests across cold replicas, while cache-aware routing piles the burst onto the one replica that already has the cache. We share Biting the Bullet (BTB), a small router-side policy that detects repeated long prefixes and copies the already-computed KV to several replicas over RDMA before the rest of the burst arrives. On our Bursted-ART workload in Infer-Sim, BTB cuts mean time to first token by 10-60% versus cache-aware routing, while staying mostly inactive on ordinary ART traffic.
 
 # Background
 
-We first need to understand how GPU routers work. When a service receives an LLM inference request, it typically first hits a router layer, such as Dynamo or SGLang model gateway. These routers pick a GPU cluster to route your request to based on a policy you choose.
+When an inference service receives an LLM request, it usually hits a router before it reaches a serving replica. A replica might be one GPU or a tensor-parallel group of GPUs serving one copy of the model. The router decides where the request should go.
 
 ![Router layer sending requests to GPU clusters.](/content/biting-the-bullet/router-overview.png)
 
-You next need to understand KV cache management. In LLM generation, every request is a sequence of words. As long as two requests have the exact same prefix, they can reuse a lot of the computed math (the KV). It is important to note that the prefix must match exactly, so even a single token difference near the start of a request will break the KV cache.
+The router matters because LLM serving is not just about raw GPU speed. It is also about whether the target replica already has useful KV cache. In generation, each request builds key/value (KV) tensors for its prompt. If two requests share the exact same prefix, the second request can reuse the KV produced by the first. If a single token differs near the beginning, that reuse breaks at the first mismatch.
 
 ![Two requests can share KV only when their prefix matches exactly.](/content/biting-the-bullet/prefix-cache.png)
 
-There are a few memory tiers for LLM inference. First is GPU HBM. This is on each individual GPU and is the fastest and smallest tier. Next is CPU RAM shared by multiple GPUs serving the same LLM. Above that is disk/NVMe, which is shared between clusters. Two unique data transfer paths also exist: RDMA, which allows GPUs to directly read from each other's HBM, and NVLink, which enables extremely fast GPU-to-GPU transfer within the same cluster. In this article, we'll make use of RDMA to quickly preload another GPU with the cache we need.
+Serving systems can find KV in a few places. Local GPU HBM is fastest. Host RAM is slower, but still much cheaper than recomputing a long prompt. RDMA lets one replica copy KV from another replica over the network. Disk/NVMe can store prefix cache too, but it is much slower and often barely beats recompute for long prefill-heavy models.
 
 ![Memory tiers and transfer paths for shared KV.](/content/biting-the-bullet/memory-tiers.png)
 
@@ -1521,7 +1523,7 @@ There are a few memory tiers for LLM inference. First is GPU HBM. This is on eac
 | Disk / NVMe | 7 GB/s | 7 GB/s (shared) | local SSD prefix cache |
 | Prefill | 989 TFLOP/s peak | 1.98 PFLOP/s eff (MFU 0.5) | recompute |
 
-The cost of regenerating the KV depends on the length of the prefix that was matched. The longer the prefix, the bigger the cost of generating compared to replicating or moving from an already existing source like RAM. The table below reports milliseconds to make the matched prefix KV available for one request at each prefix length.
+The key economic point is simple: prefill is compute-bound, while KV reuse is bandwidth-bound. The table below reports milliseconds to make the matched prefix KV available for one request at each prefix length.
 
 | Source | 500 tok (ms) | 1k tok (ms) | 2k tok (ms) | 8k tok (ms) | 16k tok (ms) | 32k tok (ms) | vs. prefill |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1531,15 +1533,15 @@ The cost of regenerating the KV depends on the length of the prefix that was mat
 | RAM (host, PCIe) | 0.75 | 1.49 | 2.98 | 11.9 | 23.8 | 47.7 | 48x faster |
 | HBM (local floor) | 0.012 | 0.024 | 0.049 | 0.20 | 0.39 | 0.78 | 2919x faster |
 
-Clearly, prefill is much more expensive than keeping KV cache ready. This gives us the motivation: if we can see a burst incoming, it would be much faster to prewarm it with already computed KV.
+Prefill is much more expensive than moving already-computed KV into the right place. That gives us the motivation: if a router can see that more same-prefix requests are likely to arrive, it can be worth copying the prefix KV to several replicas before those requests show up.
 
 # Large, Batched Requests Break Routers
 
-There are a few routing policies that routers such as Dynamo and SGLang Model Gateway provide out of the box, the most popular by far being cache-aware routing. Each has tradeoffs that show up under bursty workloads.
+Most routers expose a few simple policies. The two useful baselines here are least-load routing and cache-aware routing.
 
 ## Least Load
 
-The router selects the GPU with the lowest load (lowest incoming flight of requests). This may have the lowest queue time, but it has much more prefill time because every request has to refill from scratch if it lands on a cold node.
+Least-load routing sends each request to the replica with the fewest in-flight requests. This is great when requests are unrelated, because it spreads work evenly. It is bad for same-prefix bursts, because it scatters the burst across cold replicas. Each cold replica then recomputes the same long prefix from scratch.
 
 The best case is when many unrelated requests get evenly spread out, preventing any node hot spots.
 
@@ -1551,21 +1553,21 @@ The worst case is when a burst of same-prefix requests gets scattered across col
 
 ## Cache Aware
 
-The router sends each request to the node with the best KV-cache affinity, falling back to load balancing once that node gets too loaded.
+Cache-aware routing sends a request to the replica with the best prefix-cache match, then falls back to load balancing when the cluster is too imbalanced.
 
-The best case is a steady trickle of similar-prefix requests, similar to many agentic chats, because each request gets separated into different GPUs and has a high cache hit rate.
+The best case is a steady trickle of similar-prefix requests, similar to many agentic chats, because each request keeps reusing the KV left warm by the previous request.
 
 ![Cache-aware routing best case.](/content/biting-the-bullet/cache-aware-best.mp4)
 
-The worst case is a burst of same-prefix requests, causing a queue to build up on a single GPU.
+The worst case is a burst of same-prefix requests. Affinity pulls the whole burst toward the warm replica, where the cache hit is good but the queue gets ugly.
 
 ![Cache-aware routing worst case.](/content/biting-the-bullet/cache-aware-worst.mp4)
 
-In both routers, you can see how a burst of same-prefix requests causes issues that hurt the end-user experience. In least-load routing, you are not utilizing the KV you already created. In cache-aware routing, bursts cause you to build up a huge queue.
+The failure mode is not that either router is irrational. They are optimizing different local signals. Least-load sees open capacity but ignores expensive prefix reuse. Cache-aware sees prefix reuse but can create a hot queue. BTB tries to get both: keep the prefix reuse, but make several replicas warm enough to serve the burst.
 
 # Dataset Creation and Workload Pattern
 
-When reading other papers that built routing algorithms or KV cache management algorithms, we found they often used Mooncake traces to backtest their theories. However, when we checked these datasets, we found that they were missing key pieces for this workload.
+Before building a new policy, we checked whether public traces actually contain the pattern we care about: many requests with a deep shared prefix arriving close together. A trace needs two things for this to be measurable: arrival timestamps and prefix content or prefix hashes. Many datasets have one but not the other.
 
 | Trace | Rows read | Arrival timestamps | Prefix hash / content | Bursts (>=16 KV blocks in <=10s) |
 | --- | --- | --- | --- | --- |
@@ -1575,19 +1577,80 @@ When reading other papers that built routing algorithms or KV cache management a
 | LMSYS-Chat-1M | 1M convs | no | yes | - |
 | ShareGPT | ~90k convs | no | yes | - |
 
-Either the dataset did not have timestamps, did not have prefix hashes, or did not include the workload target: bursts.
+The pattern is hard to see in public data. Chat datasets often do not have timestamps. BurstGPT has timestamps, but not prefix content. Mooncake has fanout-like structure, but the largest groups are often shallow shared templates rather than long shared prefixes. ART is the closest, but the deep repeated-prefix bursts are still rare.
 
-We believe this is because the datasets are collected from multi-turn user chatbot interactions, internal usage, or toy public-facing API endpoints. This is blind to enterprise or large-scale usage, which includes things like data labeling and large-volume bursts.
+That makes sense. Public traces tend to come from chatbots, internal demos, or broad API workloads. The bursty workload we care about is more likely in production systems doing data labeling, batch scoring, document processing, or sub-agent fanout: many requests launched at once, all sharing the same long prompt or document.
 
-We decided to create our own dataset called Bursted-ART. Using the real ART replay window, we added burst structure for testing prefix-heavy workloads.
+So we created Bursted-ART: normal ART replay windows mixed with synthetic same-prefix burst windows. The point is not to claim this is production traffic. The point is to create a clear testbed for the regime current traces barely cover.
 
 Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
 
+## How We Built Bursted-ART
+
+Bursted-ART keeps complete ART trace windows intact and adds synthetic windows with synchronized long-prefix bursts. We split by complete trace window, not by individual row, so a burst cannot leak neighboring requests across train and test.
+
+Each synthetic window is meant to model a data labeling job, batch scoring job, or sub-agent fanout:
+
+- 8 burst jobs per synthetic window
+- 500 requests per burst job
+- 65,536 shared prefix tokens per burst job
+- 256 unique suffix tokens per request
+- 1 output token per request
+- 120 one/few-request decoy jobs per synthetic window
+- requests spread over a 60-second burst window
+
+The decoys matter because we do not want a detector that fires on any repeated prefix. The target is sustained reuse of a long prefix with enough future traffic to repay the cost of warming.
+
+The generated rows keep the request-level fields Infer-Sim needs: arrival time, input length, output length, prefix block hashes, request/session/group IDs, source, trace ID, and metadata. ART rows keep their original prefix hashes. Synthetic rows create explicit shared `hash_ids` for the common prefix and unique suffix blocks for each request.
+
+The current split is 10 train windows and 30 test windows, or 25,600 train rows and 76,800 test rows. The exact generation command and code links are in the appendix at the bottom.
+
 # Biting the Bullet
 
-What if we could detect sustained reuse of a prefix, then copy that KV onto multiple GPUs from RDMA into HBM before more requests arrive later?
+BTB asks a narrow question: if we see the same long prefix appearing again and again, can we copy that prefix KV onto multiple replicas before the rest of the burst arrives?
 
-We tested this in [Infer-Sim](/post.html?id=infer-sim), our open-source simulator for routing algorithms and cache policies for inference workloads. The animation below shows BTB detecting a burst and prewarming peer GPUs before the rest of the burst arrives.
+We tested this in [Infer-Sim](/post/infer-sim), our open-source simulator for routing algorithms and cache policies for inference workloads. The implementation is intentionally simple and lives in [2-bite-the-bullet/bite_the_bullet.py](https://github.com/jwlaboratory/bite-the-bullet/blob/main/2-bite-the-bullet/bite_the_bullet.py).
+
+## The Detection System
+
+The prototype has four constants:
+
+| Constant | Meaning | Value |
+| --- | --- | --- |
+| X | same-prefix arrivals needed to fire | 2 |
+| Y | shared-prefix length matched and copied | 256 blocks |
+| Z | detection window | 1s |
+| M | replicas to warm | 4 |
+
+In words: if the same Y-block prefix arrives X times within Z seconds, BTB marks that prefix as active. It then tries to copy the existing KV for that prefix to M least-loaded replicas that do not already hold it. Later requests with the same prefix are routed to the least-loaded warm replica instead of all queueing on one cache-owning node or spreading blindly to cold nodes.
+
+M means serving replicas, not individual GPUs. A replica might be 4 or 8 GPUs doing tensor parallelism together, so one warmed copy is sharded across the GPUs inside that replica. In our main runs, M=4 warms four separate serving replicas.
+
+The detector is reactive. The first request for a brand-new prefix still has to create the KV somewhere. BTB only helps after enough evidence appears that more same-prefix requests are likely. This is why BTB can improve the mean TTFT a lot while still leaving the very first cold request untouched.
+
+The prototype has three gates. The prefix gate only considers a prefix if it has at least Y blocks, so short shared system prompts are ignored. The burst gate keeps a trailing Z-second history for each prefix and fires once the count reaches X. The replica gate warms only replicas that do not already have the prefix and are among the least loaded targets.
+
+## What Happens on Each Request
+
+Operationally, BTB keeps a small amount of router-side state. For each incoming request:
+
+1. take the first Y prefix block hashes as the prefix key
+2. append the request arrival time to that key's history
+3. drop arrivals older than Z seconds
+4. mark the prefix active if the remaining count is at least X
+5. check that at least one replica already has the full matched prefix
+6. schedule RDMA copies to missing replicas, preferring low-load targets
+7. avoid duplicate pending copies to the same target
+8. insert the warmed blocks into that replica's HBM cache once the copy is ready
+9. route later matching requests to the least-loaded warm replica
+
+When BTB schedules a warm, it picks missing replicas by current load, computes the copy time from the prefix size and RDMA bandwidth, and records the copy as pending. Pending warms prevent duplicate arrivals from scheduling the same copy over and over. Once the simulated ready time passes, the warmed blocks are inserted into that replica's HBM cache, with the normal LRU policy handling any spillover into host RAM.
+
+Routing changes only when a warm copy is available. If a matching prefix is active and at least one replica has the warmed prefix, BTB routes the request to the least-loaded warm replica. If the prefix is too short, the burst count has not fired, or no resident copy exists yet, it falls back to the normal cache-aware router. That makes the control path fairly easy to reason about: normal traffic mostly behaves like cache-aware routing, while detected prefix bursts get several queueing locations instead of one hot node.
+
+Least-load routing gives the burst several queues, but they are cold queues. Cache-aware routing gives the burst a warm queue, but usually just one. BTB creates several warm queues. It pays a small RDMA copy cost so that later requests avoid a much larger prefill cost and do not all wait behind the same hot replica.
+
+The animation below shows BTB detecting a burst and prewarming peer GPUs before the rest of the burst arrives.
 
 ![Biting the Bullet predictive warming.](/content/biting-the-bullet/biting-the-bullet.mp4)
 
@@ -1602,12 +1665,75 @@ We tested this in [Infer-Sim](/post.html?id=infer-sim), our open-source simulato
 
 ![Mean TTFT for cache-aware routing versus early RDMA warming.](/content/biting-the-bullet/results.png)
 
+The result is strongest when the prefix is expensive enough to matter and the rest of the burst arrives after the first few detections. The 70B setup is a good example of the limitation: mean TTFT drops sharply, but p95 is flat because the p95 request is often the first cold request in a burst. BTB cannot copy KV that does not exist yet. The dense1t/B300 setup has the opposite problem: the model is so compute-heavy that TTFT is dominated by raw prefill and queueing even after routing improves, so warming buys less.
+
+On plain ART windows, the same policy is basically inert because the deep repeated prefixes do not show up often enough to fire:
+
+| setup | CA mean | BTB mean | mean speedup | p95 speedup |
+| --- | --- | --- | --- | --- |
+| 70b_h100x4 | 0.927s | 0.919s | +0.9% | +1.3% |
+| qwen3_8b_h100x4 | 0.036s | 0.036s | -0.5% | -0.2% |
+| glm45_h100x4 | 0.220s | 0.218s | +0.6% | +1.5% |
+| glm52_h100x8 | 0.111s | 0.112s | -0.6% | +1.0% |
+| kimi_k2_h100x8 | 0.084s | 0.084s | -0.4% | -0.4% |
+| dense1t_b300x4 | 204.8s | 198.6s | +3.0% | +2.9% |
+
+This is important because it means the fixed rule does not constantly perturb ordinary traffic. It mostly waits until the workload enters the regime it was designed for.
+
 # Future Ideas
 
-- Speculative prefill
-- Partial fake prefill
-- More cache actions such as pin and evict
-- Agentic workloads
+The two biggest caveats are that these results are from [Infer-Sim](/post/infer-sim) and from our [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART) dataset. That is a useful place to test the mechanism, but it is not the same as running inside a production serving stack with real queues, real scheduler behavior, real cache pressure, real RDMA contention, and messy product traffic. The next real test is live production traffic, ideally behind a shadow router first and then a small canary.
+
+We also want to try policies that create KV even when it does not already exist on another replica.
+
+## Speculative Prefill
+
+Speculative prefill means predicting a burst before the actual requests arrive, then spending idle compute to prefill the shared prefix on extra replicas. Unlike RDMA warming, this does not require the KV to already exist elsewhere. It is more powerful, but it can also be more dangerous: a false positive burns foreground compute and can interfere with decode.
+
+The rule we want is not "always prefill the full prompt." It should be: estimate the lead time, estimate the expected burst size, estimate available idle prefill capacity, and only prefill the depth that can finish before the burst arrives.
+
+## Partial Fake Prefill
+
+Partial fake prefill is a softer version. Instead of precomputing the entire shared prefix, warm only the first N tokens. A later real request still recomputes the rest, but the partial KV is enough to make more replicas cache-affine and reduce the cold prefill each one has to pay.
+
+In a preliminary simulator-only synthetic labeling burst, cache-aware had 10.00s mean TTFT and 14.49s p95 TTFT. Half-prefix warming was often a better tradeoff than full-prefix warming when the predictor was noisy:
+
+| Policy | Predictor precision / recall | Delta mean TTFT | Delta p95 TTFT | Warm GB | Warm busy (s) |
+| --- | --- | --- | --- | --- | --- |
+| 32k partial prefill | 1.00 / 1.00 | -5.38s | -6.25s | 343.6 | 74.9s |
+| 65k full prefill | 1.00 / 1.00 | -5.88s | -4.41s | 687.2 | 149.7s |
+| 32k partial prefill | 0.50 / 1.00 | -5.31s | -5.61s | 687.2 | 149.7s |
+| 65k full prefill | 0.50 / 1.00 | -4.42s | -1.46s | 1374.4 | 299.4s |
+| 32k partial prefill | 0.25 / 1.00 | -3.29s | +0.27s | 1374.4 | 299.4s |
+| 65k full prefill | 0.25 / 1.00 | +8.24s | +27.29s | 2748.8 | 598.8s |
+
+The takeaway is that full-prefix prefill is best only when prediction is very accurate and the system has enough idle capacity. Partial prefill gives up some maximum upside, but it caps false-positive damage much better.
+
+Other next steps:
+
+- add cache actions beyond replicate, such as pin, evict, demote, and promote
+- make the detection thresholds adaptive to expected burst size, current queue load, and cache pressure
+- test agentic workloads where subagents share a long document but produce longer outputs
+- compare RDMA warming, speculative prefill, and partial prefill under the same production replay harness
+
+# Appendix: Reproducing Bursted-ART
+
+The dataset construction code lives in the BTB repo. The important files are:
+
+- Dataset generator: [3-workload/generate/generate_combined_dataset.py](https://github.com/jwlaboratory/bite-the-bullet/blob/main/3-workload/generate/generate_combined_dataset.py)
+- Dataset upload helper: [3-workload/generate/upload_to_hf.py](https://github.com/jwlaboratory/bite-the-bullet/blob/main/3-workload/generate/upload_to_hf.py)
+- Public dataset: [shreybirmiwal/Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
+- Simulator replay loader: [inference-sim/workload.py](https://github.com/jwlaboratory/inference-sim/blob/main/workload.py)
+
+To regenerate the dataset locally from the BTB repo:
+
+```bash
+python3 3-workload/generate/generate_combined_dataset.py \
+  --synthetic-burst-window-s 60 \
+  --out-dir 3-workload/generate/out/Bursted-ART
+```
+
+The generator starts with ART replay windows, creates synthetic burst windows with shared prefix block hashes, adds decoy jobs, writes request-level JSONL rows, and preserves the fields Infer-Sim expects for replay: arrival time, input length, output length, prefix block hashes, request/session/group IDs, source, trace ID, and metadata.
 
 */ }),
   },
