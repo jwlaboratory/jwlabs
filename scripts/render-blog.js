@@ -373,10 +373,13 @@ const resolveImageSource = ({ explicitSrc, referenceKey, references, post }) => 
 };
 
 const createTable = (rows) => {
+  const wrapper = document.createElement("div");
   const table = document.createElement("table");
   const [headerRow, , ...bodyRows] = rows;
   const thead = document.createElement("thead");
   const tbody = document.createElement("tbody");
+
+  wrapper.className = "table-scroll";
 
   const splitRow = (row) =>
     normalizeLine(row)
@@ -405,7 +408,8 @@ const createTable = (rows) => {
   });
 
   table.append(thead, tbody);
-  return table;
+  wrapper.append(table);
+  return wrapper;
 };
 
 const isBlockStart = (line) =>
