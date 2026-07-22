@@ -1535,7 +1535,7 @@ The cost of regenerating the KV depends on the length of the prefix that was mat
 | RAM (host, PCIe) | 0.75 | 1.49 | 2.98 | 11.9 | 23.8 | 47.7 | 48x faster |
 | HBM (local floor) | 0.012 | 0.024 | 0.049 | 0.20 | 0.39 | 0.78 | 2919x faster |
 
-![Bar chart at an 8k-token prefix showing prefill, disk, RDMA, RAM, and HBM costs.](/content/biting-the-bullet/prefill-transfer-chart.png)
+![8k token prefix has the highest cost with prefilling, then disk, then RDMA, then RAM, then HBM.](/content/biting-the-bullet/prefill-transfer-chart.png)
 
 Clearly, prefill is much more expensive than keeping KV cache ready. This gives us the motivation: if we can see a burst incoming, it would be much faster to prewarm it with already computed KV.
 
@@ -1583,8 +1583,6 @@ When reading other papers that built routing algorithms or KV cache management a
 
 After going through them, we found two different problems. Some datasets did not contain arrival timestamps, so they could not fully recreate a burst scenario. Others had timestamps, but did not include prefix hashes or content, so we could not tell whether the requests were actually sharing the same KV. Of the datasets that contained both, the pattern barely showed up: Mooncake only reached a 2-request deep-prefix fanout, and ART-Chat reached 25.
 
-For clarity, our "burst" calculation was: take the first 16 KV block hashes of each request as the prefix key, group requests with the same key, then slide a 10-second window over each group and count the largest number of independent requests that land together. In other words, this is not just raw traffic spiking. It is same-prefix fanout, where many requests arrive close together and can reuse the same long KV prefix.
-
 We hypothesize this happens because public traces are often made from toy/demo traffic, chat tools, or internal employee coding/chat workloads. These traces are useful, but they do not fully cover real enterprise LLM workloads like data labeling, parsing PDFs, batch extraction, or sub-agent fanout, where many requests can share the same long prompt or document. That is what motivated us to create our own dataset, Bursted-ART.
 
 We built Bursted-ART by starting from the original [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M) replay windows, keeping normal ART traffic intact, and adding synthetic windows with synchronized long-prefix bursts. The goal was not to replace ART, but to create a stress test for the same-prefix fanout case that public traces barely contain.
@@ -1615,7 +1613,7 @@ The current split is 10 train windows and 30 test windows, or 25,600 train rows 
 
 # Biting the Bullet
 
-What if we could detect sustained reuse of a prefix, then copy that KV onto multiple GPUs from RDMA into HBM before more requests arrive later?
+What if, instead of waiting for a queue to build up before splitting across GPUs, or instead of blindly distributing requests across multiple GPUs without warmed KV cache, we could predict as soon as we saw a stream of requests coming in that a burst was incoming, then automatically share the prefix using RDMA?
 
 We tested this in [Infer-Sim](/post/infer-sim), our open-source simulator for routing algorithms and cache policies for inference workloads. The implementation is intentionally simple and lives in [2-bite-the-bullet/bite_the_bullet.py](https://github.com/jwlaboratory/bite-the-bullet/blob/main/2-bite-the-bullet/bite_the_bullet.py).
 
@@ -1630,35 +1628,17 @@ The prototype has four constants:
 | Z | detection window | 1s |
 | M | replicas to warm | 4 |
 
-In words: if the same Y-block prefix arrives X times within Z seconds, BTB marks that prefix as active. It then tries to copy the existing KV for that prefix to M least-loaded replicas that do not already hold it. Later requests with the same prefix are routed to the least-loaded warm replica instead of all queueing on one cache-owning node or spreading blindly to cold nodes.
+The algorithm works like this: if the same Y-block-length prefix arrives X times within Z seconds, BTB marks that prefix as active and warms M replicas by using RDMA to send the KV to other GPUs. Later requests with the same prefix can then route to the least-loaded warm replica instead of all queueing on one cache-owning node or spreading blindly to cold nodes.
 
-The detector is reactive. The first request for a brand-new prefix still has to create the KV somewhere. BTB only helps after enough evidence appears that more same-prefix requests are likely. This is why BTB can improve the mean TTFT a lot while still leaving the very first cold request untouched.
-
-The prototype has three gates. The prefix gate only considers a prefix if it has at least Y blocks, so short shared system prompts are ignored. The burst gate keeps a trailing Z-second history for each prefix and fires once the count reaches X. The replica gate warms only replicas that do not already have the prefix and are among the least loaded targets.
-
-## What Happens on Each Request
-
-Operationally, BTB keeps a small amount of router-side state. For each incoming request:
-
-1. take the first Y prefix block hashes as the prefix key
-2. append the request arrival time to that key's history
-3. drop arrivals older than Z seconds
-4. mark the prefix active if the remaining count is at least X
-5. check that at least one replica already has the full matched prefix
-6. schedule RDMA copies to missing replicas, preferring low-load targets
-7. avoid duplicate pending copies to the same target
-8. insert the warmed blocks into that replica's HBM cache once the copy is ready
-9. route later matching requests to the least-loaded warm replica
-
-When BTB schedules a warm, it picks missing replicas by current load, computes the copy time from the prefix size and RDMA bandwidth, and records the copy as pending. Pending warms prevent duplicate arrivals from scheduling the same copy over and over. Once the simulated ready time passes, the warmed blocks are inserted into that replica's HBM cache, with the normal LRU policy handling any spillover into host RAM.
-
-Routing changes only when a warm copy is available. If a matching prefix is active and at least one replica has the warmed prefix, BTB routes the request to the least-loaded warm replica. If the prefix is too short, the burst count has not fired, or no resident copy exists yet, it falls back to the normal cache-aware router. That makes the control path fairly easy to reason about: normal traffic mostly behaves like cache-aware routing, while detected prefix bursts get several queueing locations instead of one hot node.
-
-Least-load routing gives the burst several queues, but they are cold queues. Cache-aware routing gives the burst a warm queue, but usually just one. BTB creates several warm queues. It pays a small RDMA copy cost so that later requests avoid a much larger prefill cost and do not all wait behind the same hot replica.
-
-The animation below shows BTB detecting a burst and prewarming peer GPUs before the rest of the burst arrives.
+If the prefix is too short, the burst count has not fired, or no resident copy exists yet, BTB falls back to the normal cache-aware router. The animation below shows how BTB gets triggered and warms other GPUs as a burst comes in.
 
 ![Biting the Bullet: the router detects the repeated prefix, warms peer replicas over RDMA, then spreads later burst requests across warm queues.](/content/biting-the-bullet/biting-the-bullet.mp4)
+
+The best-case scenario is a sustained same-prefix burst where the first few requests reveal the pattern and the rest of the burst arrives after RDMA copies have finished. In that case, BTB keeps the cache-hit benefit of cache-aware routing, but gives the burst multiple warm queues instead of one hot queue.
+
+The worst-case scenario is a burst that is too short, arrives too quickly, or starts from a brand-new prefix. BTB cannot warm KV that does not exist yet, so the first cold request still pays prefill. If the model is extremely compute-heavy, or if the burst ends before copies finish, warming helps less.
+
+The results were extremely positive on the Bursted-ART dataset:
 
 | setup | CA mean | CA p95 | BTB mean | BTB p95 | mean speedup | p95 speedup |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1669,22 +1649,11 @@ The animation below shows BTB detecting a burst and prewarming peer GPUs before 
 | kimi_k2_h100x8 | 0.093s | 0.832s | 0.048s | 0.167s | +48.1% | +79.9% |
 | dense1t_b300x4 | 436.8s | 926.1s | 392.0s | 857.9s | +10.3% | +7.4% |
 
+The result speedup is shown below:
+
 ![Mean TTFT for cache-aware routing versus early RDMA warming.](/content/biting-the-bullet/results.png)
 
 The result is strongest when the prefix is expensive enough to matter and the rest of the burst arrives after the first few detections. The 70B setup is a good example of the limitation: mean TTFT drops sharply, but p95 is flat because the p95 request is often the first cold request in a burst. BTB cannot copy KV that does not exist yet. The dense1t/B300 setup has the opposite problem: the model is so compute-heavy that TTFT is dominated by raw prefill and queueing even after routing improves, so warming buys less.
-
-On plain ART windows, the same policy is basically inert because the deep repeated prefixes do not show up often enough to fire:
-
-| setup | CA mean | BTB mean | mean speedup | p95 speedup |
-| --- | --- | --- | --- | --- |
-| 70b_h100x4 | 0.927s | 0.919s | +0.9% | +1.3% |
-| qwen3_8b_h100x4 | 0.036s | 0.036s | -0.5% | -0.2% |
-| glm45_h100x4 | 0.220s | 0.218s | +0.6% | +1.5% |
-| glm52_h100x8 | 0.111s | 0.112s | -0.6% | +1.0% |
-| kimi_k2_h100x8 | 0.084s | 0.084s | -0.4% | -0.4% |
-| dense1t_b300x4 | 204.8s | 198.6s | +3.0% | +2.9% |
-
-This is important because it means the fixed rule does not constantly perturb ordinary traffic. It mostly waits until the workload enters the regime it was designed for.
 
 # Future Ideas
 
