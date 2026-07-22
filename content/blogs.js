@@ -1521,9 +1521,9 @@ There are a few memory tiers for LLM inference. First is GPU HBM. This is on eac
 | Disk / NVMe | 7 GB/s | 7 GB/s (shared) | local SSD prefix cache |
 | Prefill | 989 TFLOP/s peak | 1.98 PFLOP/s eff (MFU 0.5) | recompute |
 
-The cost of regenerating the KV depends on the length of the prefix that was matched. The longer the prefix, the bigger the cost of generating compared to replicating or moving from an already existing source like RAM.
+The cost of regenerating the KV depends on the length of the prefix that was matched. The longer the prefix, the bigger the cost of generating compared to replicating or moving from an already existing source like RAM. The table below reports milliseconds to make the matched prefix KV available for one request at each prefix length.
 
-| Source | 500 | 1k | 2k | 8k | 16k | 32k | vs. prefill |
+| Source | 500 tok (ms) | 1k tok (ms) | 2k tok (ms) | 8k tok (ms) | 16k tok (ms) | 32k tok (ms) | vs. prefill |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Prefill (recompute) | 35.7 | 71.4 | 142.8 | 571 | 1142 | 2284 | 1x |
 | Disk / NVMe | 23.4 | 46.8 | 93.6 | 374 | 749 | 1498 | 1.5x faster |
@@ -1543,11 +1543,11 @@ The router selects the GPU with the lowest load (lowest incoming flight of reque
 
 The best case is when many unrelated requests get evenly spread out, preventing any node hot spots.
 
-![Least-load routing best case.](/content/biting-the-bullet/least-load-best.gif)
+![Least-load routing best case.](/content/biting-the-bullet/least-load-best.mp4)
 
 The worst case is when a burst of same-prefix requests gets scattered across cold nodes, so none hit cached KV and each node has to do a full prefill.
 
-![Least-load routing worst case.](/content/biting-the-bullet/least-load-worst.gif)
+![Least-load routing worst case.](/content/biting-the-bullet/least-load-worst.mp4)
 
 ## Cache Aware
 
@@ -1555,11 +1555,11 @@ The router sends each request to the node with the best KV-cache affinity, falli
 
 The best case is a steady trickle of similar-prefix requests, similar to many agentic chats, because each request gets separated into different GPUs and has a high cache hit rate.
 
-![Cache-aware routing best case.](/content/biting-the-bullet/cache-aware-best.gif)
+![Cache-aware routing best case.](/content/biting-the-bullet/cache-aware-best.mp4)
 
 The worst case is a burst of same-prefix requests, causing a queue to build up on a single GPU.
 
-![Cache-aware routing worst case.](/content/biting-the-bullet/cache-aware-worst.gif)
+![Cache-aware routing worst case.](/content/biting-the-bullet/cache-aware-worst.mp4)
 
 In both routers, you can see how a burst of same-prefix requests causes issues that hurt the end-user experience. In least-load routing, you are not utilizing the KV you already created. In cache-aware routing, bursts cause you to build up a huge queue.
 
@@ -1589,7 +1589,7 @@ What if we could detect sustained reuse of a prefix, then copy that KV onto mult
 
 We can see this through Infer-Sim:
 
-![Biting the Bullet predictive warming.](/content/biting-the-bullet/biting-the-bullet.gif)
+![Biting the Bullet predictive warming.](/content/biting-the-bullet/biting-the-bullet.mp4)
 
 | setup | CA mean | CA p95 | BTB mean | BTB p95 | mean speedup | p95 speedup |
 | --- | --- | --- | --- | --- | --- | --- |

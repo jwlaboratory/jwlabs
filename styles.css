@@ -556,11 +556,22 @@ body[data-page="article"] .site-footer {
 
 .blog-content figure {
   margin: 28px 0;
+  max-width: 100%;
+  overflow: hidden;
   text-align: center;
 }
 
 .blog-content img {
   display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.blog-content figure video,
+.blog-content video {
+  display: block;
+  width: 100%;
   max-width: 100%;
   height: auto;
   margin: 0 auto;
@@ -578,13 +589,15 @@ body[data-page="article"] .site-footer {
   width: 100%;
   margin: 24px 0;
   border-collapse: collapse;
-  font-size: 14px;
+  table-layout: fixed;
+  font-size: 13px;
 }
 
 .blog-content th,
 .blog-content td {
-  padding: 10px 14px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
   text-align: left;
   vertical-align: top;
 }

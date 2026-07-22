@@ -286,12 +286,51 @@ const extractReferenceDefinitions = (lines) => {
   return { contentLines, references };
 };
 
+const isVideoSource = (src = "") => /\.(mp4|webm|mov)(?:[?#].*)?$/i.test(src);
+
 const createImage = (alt, src, fallbackSrc = "") => {
   const figure = document.createElement("figure");
+
+  if (isVideoSource(src)) {
+    const video = document.createElement("video");
+
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = src;
+    video.setAttribute("autoplay", "");
+    video.setAttribute("loop", "");
+    video.setAttribute("muted", "");
+    video.setAttribute("playsinline", "");
+    video.setAttribute("aria-label", alt);
+
+    const playVideo = () => {
+      const playPromise = video.play();
+
+      if (playPromise) {
+        playPromise.catch(() => {});
+      }
+    };
+
+    video.addEventListener("canplay", playVideo, { once: true });
+    figure.append(video);
+    queueMicrotask(playVideo);
+
+    if (alt) {
+      const caption = document.createElement("figcaption");
+      caption.textContent = alt;
+      figure.append(caption);
+    }
+
+    return figure;
+  }
+
   const image = document.createElement("img");
 
   image.alt = alt;
-  image.loading = "lazy";
+  image.loading = src.endsWith(".gif") ? "eager" : "lazy";
   image.src = src;
 
   if (fallbackSrc && fallbackSrc !== src) {
