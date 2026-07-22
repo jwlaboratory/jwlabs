@@ -1583,33 +1583,7 @@ When reading other papers that built routing algorithms or KV cache management a
 
 After going through them, we found two different problems. Some datasets did not contain arrival timestamps, so they could not fully recreate a burst scenario. Others had timestamps, but did not include prefix hashes or content, so we could not tell whether the requests were actually sharing the same KV. Of the datasets that contained both, the pattern barely showed up: Mooncake only reached a 2-request deep-prefix fanout, and ART-Chat reached 25.
 
-We hypothesize this happens because public traces are often made from toy/demo traffic, chat tools, or internal employee coding/chat workloads. These traces are useful, but they do not fully cover real enterprise LLM workloads like data labeling, parsing PDFs, batch extraction, or sub-agent fanout, where many requests can share the same long prompt or document. That is what motivated us to create our own dataset, Bursted-ART.
-
-## How We Built Bursted-ART
-
-Bursted-ART keeps complete ART trace windows intact and adds synthetic windows with synchronized long-prefix bursts. We split by complete trace window, not by individual row, so a burst cannot leak neighboring requests across train and test.
-
-We built Bursted-ART by starting from the original [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M) replay windows, keeping normal ART traffic intact, and adding synthetic windows with synchronized long-prefix bursts. The goal was not to replace ART, but to create a stress test for the same-prefix fanout case that public traces barely contain.
-
-Each synthetic window is meant to model a data labeling job, batch scoring job, or sub-agent fanout:
-
-- 8 burst jobs per synthetic window
-- 500 requests per burst job
-- 65,536 shared prefix tokens per burst job
-- 256 unique suffix tokens per request
-- 1 output token per request
-- 120 one/few-request decoy jobs per synthetic window
-- requests spread over a 60-second burst window
-
-The decoys matter because we do not want a detector that fires on any repeated prefix. The target is sustained reuse of a long prefix with enough future traffic to repay the cost of warming.
-
-The generated rows keep the request-level fields Infer-Sim needs: arrival time, input length, output length, prefix block hashes, request/session/group IDs, source, trace ID, and metadata. ART rows keep their original prefix hashes. Synthetic rows create explicit shared `hash_ids` for the common prefix and unique suffix blocks for each request.
-
-The current split is 10 train windows and 30 test windows, or 25,600 train rows and 76,800 test rows. The exact generation command and code links are in the appendix at the bottom.
-
-Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
-
-Original ART dataset: [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M)
+We hypothesize this happens because public traces are often made from toy/demo traffic, chat tools, or internal employee coding/chat workloads. These traces are useful, but they do not fully cover real enterprise LLM workloads like data labeling, parsing PDFs, batch extraction, or sub-agent fanout, where many requests can share the same long prompt or document. That is what motivated us to create our own dataset, [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART). You can read more about how we created it in the appendix.
 
 # Biting the Bullet
 
@@ -1656,16 +1630,16 @@ The result speedup is shown below:
 # Future Work
 
 1. We used [Infer-Sim](/post/infer-sim) and the [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART) dataset, which includes synthetic bursts. This was great for testing the mechanism, but the next step is to test BTB in a production serving stack with real inference requests, real queues, real scheduler behavior, and real cache pressure.
-
 2. Speculative prefill. The idea here is to predict the burst before any requests actually arrive, then spend idle compute to start prefilling the shared prefix on extra replicas. Unlike RDMA warming, this does not require KV to already exist somewhere. This can be better because it could spin up new KV earlier, but it can also be worse because false positives spend real compute. One version we tested was partial fake prefill: instead of prefilling the entire shared prefix, prefill a certain percentage of it or prefill in chunks.
-
 3. More cache actions beyond replicate, such as pin, evict, demote, and promote.
-
 4. Make detection thresholds adaptive to burst size, queue load, and cache pressure.
-
 5. Use the actual user query as a hint for when bursts are coming. For example, the router could look at whether the request includes a system prompt that looks like a data labeling job, a batch extraction job, or another prompt that is likely to be reused many times.
 
 # Appendix: Reproducing Bursted-ART
+
+Bursted-ART starts with the original [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M) replay windows, keeps normal ART traffic intact, and adds synthetic windows with synchronized long-prefix bursts. Each synthetic window models a data labeling job, batch scoring job, or sub-agent fanout: many requests arrive over the same 60-second window and share a 65,536-token prefix, while each request keeps its own suffix. We also add decoy jobs so the detector does not fire on any repeated prefix; it needs sustained reuse with enough future traffic to make warming worth it.
+
+The generated rows preserve the request-level fields Infer-Sim needs for replay: arrival time, input length, output length, prefix block hashes, request/session/group IDs, source, trace ID, and metadata. The current split is 10 train windows and 30 test windows, or 25,600 train rows and 76,800 test rows.
 
 The dataset construction code lives in the BTB repo. The important files are:
 
