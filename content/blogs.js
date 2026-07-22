@@ -1499,15 +1499,15 @@ By: Shrey Birmiwal and Anish Bhat
 
 GitHub: [jwlaboratory/bite-the-bullet](https://github.com/jwlaboratory/bite-the-bullet)
 
-TLDR: Bursty LLM inference can create sudden spikes of requests with the same long prefix. Public traces barely capture this pattern, and common routers behave awkwardly when it appears: least-load routing wastes KV by scattering requests across cold replicas, while cache-aware routing piles the burst onto the one replica that already has the cache. We share Biting the Bullet (BTB), a small router-side policy that detects repeated long prefixes and copies the already-computed KV to several replicas over RDMA before the rest of the burst arrives. On our Bursted-ART workload in Infer-Sim, BTB cuts mean time to first token by 10-60% versus cache-aware routing, while staying mostly inactive on ordinary ART traffic.
+TLDR: When serving inference to production users, you often see sudden spikes of requests with the same long prefix (data labeling jobs, fanning out subagents, etc). We argue that public traces don't capture this pattern, and current GPU routing algorithms leave gaps under this environment. We share Biting the Bullet (BTB), which predicts large bursts and proactively replicates prefix cache from RDMA into GPU HBM before the burst lands. BTB cuts mean time to first token by 10-60% versus SGLang's default cache-aware router.
 
 # Background
 
-When an inference service receives an LLM request, it usually hits a router before it reaches a serving replica. A replica might be one GPU or a tensor-parallel group of GPUs serving one copy of the model. The router decides where the request should go.
+When an inference service receives an LLM request, it typically hits a router before it reaches a serving replica. A replica might be one GPU or a tensor-parallel group of GPUs serving one copy of the model. The router decides where the request should go.
 
 ![Router layer sending requests to GPU clusters.](/content/biting-the-bullet/router-overview.png)
 
-The router matters because LLM serving is not just about raw GPU speed. It is also about whether the target replica already has useful KV cache. In generation, each request builds key/value (KV) tensors for its prompt. If two requests share the exact same prefix, the second request can reuse the KV produced by the first. If a single token differs near the beginning, that reuse breaks at the first mismatch.
+You next need to understand KV cache management. In LLM generation, every request is a sequence of words. As long as two requests have the exact same prefix, they can reuse a lot of the computed math (the KV). It is important to note that the prefix must match exactly, so even a single token difference near the start of a request will break the KV cache.
 
 ![Two requests can share KV only when their prefix matches exactly.](/content/biting-the-bullet/prefix-cache.png)
 
@@ -1533,23 +1533,23 @@ The key economic point is simple: prefill is compute-bound, while KV reuse is ba
 | RAM (host, PCIe) | 0.75 | 1.49 | 2.98 | 11.9 | 23.8 | 47.7 | 48x faster |
 | HBM (local floor) | 0.012 | 0.024 | 0.049 | 0.20 | 0.39 | 0.78 | 2919x faster |
 
-Prefill is much more expensive than moving already-computed KV into the right place. That gives us the motivation: if a router can see that more same-prefix requests are likely to arrive, it can be worth copying the prefix KV to several replicas before those requests show up.
+Clearly, prefill is much more expensive than keeping KV cache ready. This gives us the motivation: if we can see a burst incoming, it would be much faster to prewarm it with already computed KV.
 
 # Large, Batched Requests Break Routers
 
-Most routers expose a few simple policies. The two useful baselines here are least-load routing and cache-aware routing.
+There are a few routing policies that routers such as Dynamo and SGLang Model Gateway provide out of the box, the most popular by far being cache-aware routing. Each has tradeoffs that show up under bursty workloads.
 
 ## Least Load
 
-Least-load routing sends each request to the replica with the fewest in-flight requests. This is great when requests are unrelated, because it spreads work evenly. It is bad for same-prefix bursts, because it scatters the burst across cold replicas. Each cold replica then recomputes the same long prefix from scratch.
+The router selects the GPU with the lowest load (lowest incoming flight of requests). This is great when requests are unrelated, because it spreads work evenly. It is bad for same-prefix bursts, because it scatters the burst across cold replicas. Each cold replica then recomputes the same long prefix from scratch.
 
 The best case is when many unrelated requests get evenly spread out, preventing any node hot spots.
 
-![Least-load routing best case.](/content/biting-the-bullet/least-load-best.mp4)
+![Least-load, best case: unrelated requests spread across replicas, so queues stay balanced.](/content/biting-the-bullet/least-load-best.mp4)
 
 The worst case is when a burst of same-prefix requests gets scattered across cold nodes, so none hit cached KV and each node has to do a full prefill.
 
-![Least-load routing worst case.](/content/biting-the-bullet/least-load-worst.mp4)
+![Least-load, worst case: the same-prefix burst scatters across cold replicas, so each replica recomputes the prefix.](/content/biting-the-bullet/least-load-worst.mp4)
 
 ## Cache Aware
 
@@ -1557,17 +1557,17 @@ Cache-aware routing sends a request to the replica with the best prefix-cache ma
 
 The best case is a steady trickle of similar-prefix requests, similar to many agentic chats, because each request keeps reusing the KV left warm by the previous request.
 
-![Cache-aware routing best case.](/content/biting-the-bullet/cache-aware-best.mp4)
+![Cache-aware, best case: similar-prefix requests reuse the warm KV cache without building a large queue.](/content/biting-the-bullet/cache-aware-best.mp4)
 
-The worst case is a burst of same-prefix requests. Affinity pulls the whole burst toward the warm replica, where the cache hit is good but the queue gets ugly.
+The worst case is a burst of same-prefix requests. Cache affinity pulls the whole burst toward the replica with the KV warm, which keeps a high cache hit rate but grows the queue size.
 
-![Cache-aware routing worst case.](/content/biting-the-bullet/cache-aware-worst.mp4)
+![Cache-aware, worst case: the burst piles onto the warm replica and a queue builds up while other replicas sit idle.](/content/biting-the-bullet/cache-aware-worst.mp4)
 
 The failure mode is not that either router is irrational. They are optimizing different local signals. Least-load sees open capacity but ignores expensive prefix reuse. Cache-aware sees prefix reuse but can create a hot queue. BTB tries to get both: keep the prefix reuse, but make several replicas warm enough to serve the burst.
 
 # Dataset Creation and Workload Pattern
 
-Before building a new policy, we checked whether public traces actually contain the pattern we care about: many requests with a deep shared prefix arriving close together. A trace needs two things for this to be measurable: arrival timestamps and prefix content or prefix hashes. Many datasets have one but not the other.
+When reading other papers that built routing algorithms or KV cache management algorithms, we found they often used Mooncake traces to backtest their theories. However, when we checked these datasets, we found that they were missing key pieces for this workload.
 
 | Trace | Rows read | Arrival timestamps | Prefix hash / content | Bursts (>=16 KV blocks in <=10s) |
 | --- | --- | --- | --- | --- |
@@ -1581,7 +1581,7 @@ The pattern is hard to see in public data. Chat datasets often do not have times
 
 That makes sense. Public traces tend to come from chatbots, internal demos, or broad API workloads. The bursty workload we care about is more likely in production systems doing data labeling, batch scoring, document processing, or sub-agent fanout: many requests launched at once, all sharing the same long prompt or document.
 
-So we created Bursted-ART: normal ART replay windows mixed with synthetic same-prefix burst windows. The point is not to claim this is production traffic. The point is to create a clear testbed for the regime current traces barely cover.
+We decided to create our own dataset called Bursted-ART. Using the real ART replay window, we added burst structure for testing prefix-heavy workloads.
 
 Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
 
@@ -1607,7 +1607,7 @@ The current split is 10 train windows and 30 test windows, or 25,600 train rows 
 
 # Biting the Bullet
 
-BTB asks a narrow question: if we see the same long prefix appearing again and again, can we copy that prefix KV onto multiple replicas before the rest of the burst arrives?
+What if we could detect sustained reuse of a prefix, then copy that KV onto multiple GPUs from RDMA into HBM before more requests arrive later?
 
 We tested this in [Infer-Sim](/post/infer-sim), our open-source simulator for routing algorithms and cache policies for inference workloads. The implementation is intentionally simple and lives in [2-bite-the-bullet/bite_the_bullet.py](https://github.com/jwlaboratory/bite-the-bullet/blob/main/2-bite-the-bullet/bite_the_bullet.py).
 
@@ -1652,7 +1652,7 @@ Least-load routing gives the burst several queues, but they are cold queues. Cac
 
 The animation below shows BTB detecting a burst and prewarming peer GPUs before the rest of the burst arrives.
 
-![Biting the Bullet predictive warming.](/content/biting-the-bullet/biting-the-bullet.mp4)
+![Biting the Bullet: the router detects the repeated prefix, warms peer replicas over RDMA, then spreads later burst requests across warm queues.](/content/biting-the-bullet/biting-the-bullet.mp4)
 
 | setup | CA mean | CA p95 | BTB mean | BTB p95 | mean speedup | p95 speedup |
 | --- | --- | --- | --- | --- | --- | --- |
