@@ -1683,8 +1683,6 @@ python3 3-workload/generate/generate_combined_dataset.py \
   --out-dir 3-workload/generate/out/Bursted-ART
 ```
 
-The generator starts with ART replay windows, creates synthetic burst windows with shared prefix block hashes, adds decoy jobs, writes request-level JSONL rows, and preserves the fields Infer-Sim expects for replay: arrival time, input length, output length, prefix block hashes, request/session/group IDs, source, trace ID, and metadata.
-
 */ }),
   },
 ];
