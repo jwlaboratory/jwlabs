@@ -349,7 +349,7 @@ body[data-page="article"] .site-footer {
 
 #abstract,
 .blog-abstract {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
   font-size: 15px;
   line-height: 1.6;
   color: var(--muted);
@@ -384,6 +384,10 @@ body[data-page="article"] .site-footer {
   font-weight: 400;
   line-height: 1.25;
   letter-spacing: -0.01em;
+}
+
+.blog-body > h2:first-child {
+  margin-top: 0;
 }
 
 .blog-content h3 {

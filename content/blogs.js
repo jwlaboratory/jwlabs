@@ -1503,7 +1503,7 @@ TLDR: When serving inference to production users, you often see sudden spikes of
 
 # Background
 
-When an inference service receives an LLM request, it typically hits a router before it reaches a serving replica. A replica might be one GPU or a tensor-parallel group of GPUs serving one copy of the model. The router decides where the request should go.
+When an inference server receives an LLM request, it first hits a router such as SGLang Model Gateway or Dynamo, which decides which cluster to send its request to based on a routing policy. Then it hits a queue in that particular cluster, which may be one GPU or a tensor-parallel group of GPUs serving the same copy of one model.
 
 ![Router layer sending requests to GPU clusters.](/content/biting-the-bullet/router-overview.png)
 
@@ -1511,7 +1511,9 @@ You next need to understand KV cache management. In LLM generation, every reques
 
 ![Two requests can share KV only when their prefix matches exactly.](/content/biting-the-bullet/prefix-cache.png)
 
-Serving systems can find KV in a few places. Local GPU HBM is fastest. Host RAM is slower, but still much cheaper than recomputing a long prompt. RDMA lets one replica copy KV from another replica over the network. Disk/NVMe can store prefix cache too, but it is much slower and often barely beats recompute for long prefill-heavy models.
+This shared prefix is called the prefix KV cache. For Llama-3.3-70B, it is about 320 KiB per token, so even a 1,000-token cached prefix is roughly 320 MiB of KV. Typically, the system prompt and initial definitions are cached and heavily reused across many users.
+
+This prefix KV can be stored in a few different places. First, it can be stored in GPU HBM, which is the fastest to access. It can also be stored in host RAM, which is the CPU RAM connected to multiple GPUs. Finally, it can be stored on disk or NVMe, which is the slowest tier and may be shared across multiple clusters. RDMA is the transfer path we care about here: it lets one replica pull KV from another peer node over the network, which is what BTB uses to quickly preload another GPU with the cache it needs.
 
 ![Memory tiers and transfer paths for shared KV.](/content/biting-the-bullet/memory-tiers.png)
 
@@ -1523,7 +1525,7 @@ Serving systems can find KV in a few places. Local GPU HBM is fastest. Host RAM 
 | Disk / NVMe | 7 GB/s | 7 GB/s (shared) | local SSD prefix cache |
 | Prefill | 989 TFLOP/s peak | 1.98 PFLOP/s eff (MFU 0.5) | recompute |
 
-The key economic point is simple: prefill is compute-bound, while KV reuse is bandwidth-bound. The table below reports milliseconds to make the matched prefix KV available for one request at each prefix length.
+The cost of regenerating the KV depends on the length of the prefix that was matched. The longer the prefix, the bigger the cost of generating compared to replicating or moving from an already existing source like RAM. The table below reports milliseconds to make the matched prefix KV available for one request at each prefix length.
 
 | Source | 500 tok (ms) | 1k tok (ms) | 2k tok (ms) | 8k tok (ms) | 16k tok (ms) | 32k tok (ms) | vs. prefill |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1563,7 +1565,7 @@ The worst case is a burst of same-prefix requests. Cache affinity pulls the whol
 
 ![Cache-aware, worst case: the burst piles onto the warm replica and a queue builds up while other replicas sit idle.](/content/biting-the-bullet/cache-aware-worst.mp4)
 
-The failure mode is not that either router is irrational. They are optimizing different local signals. Least-load sees open capacity but ignores expensive prefix reuse. Cache-aware sees prefix reuse but can create a hot queue. BTB tries to get both: keep the prefix reuse, but make several replicas warm enough to serve the burst.
+In both routers, you can see how a burst of same-prefix requests causes issues that hurt the end-user experience. In least-load routing, you are not utilizing the KV you already created. In cache-aware routing, bursts cause you to build up a huge queue.
 
 # Dataset Creation and Workload Pattern
 
