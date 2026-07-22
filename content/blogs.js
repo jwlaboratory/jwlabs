@@ -1587,7 +1587,7 @@ Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART
 
 What if we could detect sustained reuse of a prefix, then copy that KV onto multiple GPUs from RDMA into HBM before more requests arrive later?
 
-We can see this through Infer-Sim:
+We tested this in [Infer-Sim](/post.html?id=infer-sim), our open-source simulator for routing algorithms and cache policies for inference workloads. The animation below shows BTB detecting a burst and prewarming peer GPUs before the rest of the burst arrives.
 
 ![Biting the Bullet predictive warming.](/content/biting-the-bullet/biting-the-bullet.mp4)
 
