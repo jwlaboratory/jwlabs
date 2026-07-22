@@ -1487,4 +1487,130 @@ python3 simulate.py
 
 */ }),
   },
+  {
+    slug: "biting-the-bullet",
+    title: "Biting the Bullet: Predictive Speculative KV Replication for Bursty LLM Inference",
+    date: "2026-07-22",
+    category: "Engineering",
+    summary: "Predictive KV warming for bursty LLM inference workloads, using Infer-Sim to test when proactively replicating shared prefix cache can cut TTFT versus cache-aware routing.",
+    markdown: markdown(() => { /*
+
+# Biting the Bullet: Predictive Speculative KV Replication for Bursty LLM Inference
+
+By: Shrey Birmiwal and Anish Bhat
+
+TLDR: When dealing with bursty LLM inference requests, you often get spikes of very similar prefix KV requests. We argue that 1) this isn't represented in current datasets, and 2) current GPU routing algorithms falter under this environment. We share Biting the Bullet (BTB), which predicts large bursts and proactively replicates prefix cache from RDMA into GPU HBM before the burst lands. BTB cuts mean time to first token by 10-60% versus SGLang's default cache-aware router.
+
+# Background
+
+We first need to understand how GPU routers work. When a service receives an LLM inference request, it typically first hits a router layer, such as Dynamo or SGLang model gateway. These routers pick a GPU cluster to route your request to based on a policy you choose.
+
+![Router layer sending requests to GPU clusters.](/content/biting-the-bullet/router-overview.png)
+
+You next need to understand KV cache management. In LLM generation, every request is a sequence of words. As long as two requests have the exact same prefix, they can reuse a lot of the computed math (the KV). It is important to note that the prefix must match exactly, so even a single token difference near the start of a request will break the KV cache.
+
+![Two requests can share KV only when their prefix matches exactly.](/content/biting-the-bullet/prefix-cache.png)
+
+There are a few memory tiers for LLM inference. First is GPU HBM. This is on each individual GPU and is the fastest and smallest tier. Next is CPU RAM shared by multiple GPUs serving the same LLM. Above that is disk/NVMe, which is shared between clusters. Two unique data transfer paths also exist: RDMA, which allows GPUs to directly read from each other's HBM, and NVLink, which enables extremely fast GPU-to-GPU transfer within the same cluster. In this article, we'll make use of RDMA to quickly preload another GPU with the cache we need.
+
+![Memory tiers and transfer paths for shared KV.](/content/biting-the-bullet/memory-tiers.png)
+
+| Tier | Per-GPU (datasheet) | Per-node (x4) | Role |
+| --- | --- | --- | --- |
+| HBM | 3.35 TB/s | 13.4 TB/s | local GPU memory (bandwidth floor / local hit) |
+| RAM (PCIe) | 55 GB/s | 220 GB/s | KV offloaded to host DRAM |
+| RDMA | 50 GB/s (400G NIC) | 200 GB/s | a peer node's KV over the fabric |
+| Disk / NVMe | 7 GB/s | 7 GB/s (shared) | local SSD prefix cache |
+| Prefill | 989 TFLOP/s peak | 1.98 PFLOP/s eff (MFU 0.5) | recompute |
+
+The cost of regenerating the KV depends on the length of the prefix that was matched. The longer the prefix, the bigger the cost of generating compared to replicating or moving from an already existing source like RAM.
+
+| Source | 500 | 1k | 2k | 8k | 16k | 32k | vs. prefill |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Prefill (recompute) | 35.7 | 71.4 | 142.8 | 571 | 1142 | 2284 | 1x |
+| Disk / NVMe | 23.4 | 46.8 | 93.6 | 374 | 749 | 1498 | 1.5x faster |
+| RDMA (remote GPU) | 0.82 | 1.64 | 3.28 | 13.1 | 26.2 | 52.4 | 44x faster |
+| RAM (host, PCIe) | 0.75 | 1.49 | 2.98 | 11.9 | 23.8 | 47.7 | 48x faster |
+| HBM (local floor) | 0.012 | 0.024 | 0.049 | 0.20 | 0.39 | 0.78 | 2919x faster |
+
+Clearly, prefill is much more expensive than keeping KV cache ready. This gives us the motivation: if we can see a burst incoming, it would be much faster to prewarm it with already computed KV.
+
+# Large, Batched Requests Break Routers
+
+There are a few routing policies that routers such as Dynamo and SGLang Model Gateway provide out of the box, the most popular by far being cache-aware routing. Each has tradeoffs that show up under bursty workloads.
+
+## Least Load
+
+The router selects the GPU with the lowest load (lowest incoming flight of requests). This may have the lowest queue time, but it has much more prefill time because every request has to refill from scratch if it lands on a cold node.
+
+The best case is when many unrelated requests get evenly spread out, preventing any node hot spots.
+
+![Least-load routing best case.](/content/biting-the-bullet/least-load-best.gif)
+
+The worst case is when a burst of same-prefix requests gets scattered across cold nodes, so none hit cached KV and each node has to do a full prefill.
+
+![Least-load routing worst case.](/content/biting-the-bullet/least-load-worst.gif)
+
+## Cache Aware
+
+The router sends each request to the node with the best KV-cache affinity, falling back to load balancing once that node gets too loaded.
+
+The best case is a steady trickle of similar-prefix requests, similar to many agentic chats, because each request gets separated into different GPUs and has a high cache hit rate.
+
+![Cache-aware routing best case.](/content/biting-the-bullet/cache-aware-best.gif)
+
+The worst case is a burst of same-prefix requests, causing a queue to build up on a single GPU.
+
+![Cache-aware routing worst case.](/content/biting-the-bullet/cache-aware-worst.gif)
+
+In both routers, you can see how a burst of same-prefix requests causes issues that hurt the end-user experience. In least-load routing, you are not utilizing the KV you already created. In cache-aware routing, bursts cause you to build up a huge queue.
+
+# Dataset Creation and Workload Pattern
+
+When reading other papers that built routing algorithms or KV cache management algorithms, we found they often used Mooncake traces to backtest their theories. However, when we checked these datasets, we found that they were missing key pieces for this workload.
+
+| Trace | Rows read | Arrival timestamps | Prefix hash / content | Bursts (>=16 KV blocks in <=10s) |
+| --- | --- | --- | --- | --- |
+| ART-Chat-2.5M | 300,000 | yes | yes | 25 |
+| Mooncake (conv / tool-agent / arxiv) | 12k-24k | yes | yes | 2 |
+| BurstGPT | 300,000 | yes | no | - |
+| LMSYS-Chat-1M | 1M convs | no | yes | - |
+| ShareGPT | ~90k convs | no | yes | - |
+
+Either the dataset did not have timestamps, did not have prefix hashes, or did not include the workload target: bursts.
+
+We believe this is because the datasets are collected from multi-turn user chatbot interactions, internal usage, or toy public-facing API endpoints. This is blind to enterprise or large-scale usage, which includes things like data labeling and large-volume bursts.
+
+We decided to create our own dataset called Bursted-ART. Using the real ART replay window, we added burst structure for testing prefix-heavy workloads.
+
+Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
+
+# Biting the Bullet
+
+What if we could detect sustained reuse of a prefix, then copy that KV onto multiple GPUs from RDMA into HBM before more requests arrive later?
+
+We can see this through Infer-Sim:
+
+![Biting the Bullet predictive warming.](/content/biting-the-bullet/biting-the-bullet.gif)
+
+| setup | CA mean | CA p95 | BTB mean | BTB p95 | mean speedup | p95 speedup |
+| --- | --- | --- | --- | --- | --- | --- |
+| 70b_h100x4 | 1.373s | 4.697s | 0.632s | 4.697s | +54.0% | +0.0% |
+| qwen3_8b_h100x4 | 0.034s | 0.325s | 0.023s | 0.059s | +33.3% | +81.8% |
+| glm45_h100x4 | 0.288s | 1.905s | 0.115s | 0.780s | +60.0% | +59.0% |
+| glm52_h100x8 | 0.134s | 1.101s | 0.062s | 0.243s | +53.5% | +78.0% |
+| kimi_k2_h100x8 | 0.093s | 0.832s | 0.048s | 0.167s | +48.1% | +79.9% |
+| dense1t_b300x4 | 436.8s | 926.1s | 392.0s | 857.9s | +10.3% | +7.4% |
+
+![Mean TTFT for cache-aware routing versus early RDMA warming.](/content/biting-the-bullet/results.png)
+
+# Future Ideas
+
+- Speculative prefill
+- Partial fake prefill
+- More cache actions such as pin and evict
+- Agentic workloads
+
+*/ }),
+  },
 ];
