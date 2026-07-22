@@ -1513,7 +1513,7 @@ You next need to understand KV cache management. In LLM generation, every reques
 
 This shared prefix is called the prefix KV cache. For Llama-3.3-70B, it is about 320 KiB per token, so even a 1,000-token cached prefix is roughly 320 MiB of KV. Typically, the system prompt and initial definitions are cached and heavily reused across many users.
 
-This prefix KV can be stored in a few different places. First, it can be stored in GPU HBM, which is the fastest to access. It can also be stored in host RAM, which is the CPU RAM connected to multiple GPUs. Finally, it can be stored on disk or NVMe, which is the slowest tier and may be shared across multiple clusters. RDMA is the transfer path we care about here: it lets one replica pull KV from another peer node over the network, which is what BTB uses to quickly preload another GPU with the cache it needs.
+This prefix KV can be stored in a few different places. First, it can be stored in GPU HBM, which is the fastest to access. It can also be stored in host RAM, which is the CPU RAM connected to multiple GPUs. Finally, it can be stored on disk or NVMe, which is the slowest tier and may be shared across multiple clusters. RDMA is a special data-transfer method that allows one node's GPU to access and directly read from another GPU's HBM, bypassing CPU and OS overhead, which makes it very fast. This is what BTB uses to quickly preload another GPU with the cache it needs.
 
 ![Memory tiers and transfer paths for shared KV.](/content/biting-the-bullet/memory-tiers.png)
 
@@ -1534,6 +1534,8 @@ The cost of regenerating the KV depends on the length of the prefix that was mat
 | RDMA (remote GPU) | 0.82 | 1.64 | 3.28 | 13.1 | 26.2 | 52.4 | 44x faster |
 | RAM (host, PCIe) | 0.75 | 1.49 | 2.98 | 11.9 | 23.8 | 47.7 | 48x faster |
 | HBM (local floor) | 0.012 | 0.024 | 0.049 | 0.20 | 0.39 | 0.78 | 2919x faster |
+
+![Log-scale latency chart showing prefill, disk, RDMA, RAM, and HBM costs as matched prefix length grows.](/content/biting-the-bullet/prefill-transfer-chart.png)
 
 Clearly, prefill is much more expensive than keeping KV cache ready. This gives us the motivation: if we can see a burst incoming, it would be much faster to prewarm it with already computed KV.
 
@@ -1571,7 +1573,7 @@ In both routers, you can see how a burst of same-prefix requests causes issues t
 
 When reading other papers that built routing algorithms or KV cache management algorithms, we found they often used Mooncake traces to backtest their theories. However, when we checked these datasets, we found that they were missing key pieces for this workload.
 
-| Trace | Rows read | Arrival timestamps | Prefix hash / content | Bursts (>=16 KV blocks in <=10s) |
+| Trace | Rows read | Arrival timestamps | Prefix hash / content | Max burst fanout (>=16 KV blocks in <=10s) |
 | --- | --- | --- | --- | --- |
 | ART-Chat-2.5M | 300,000 | yes | yes | 25 |
 | Mooncake (conv / tool-agent / arxiv) | 12k-24k | yes | yes | 2 |
@@ -1579,13 +1581,17 @@ When reading other papers that built routing algorithms or KV cache management a
 | LMSYS-Chat-1M | 1M convs | no | yes | - |
 | ShareGPT | ~90k convs | no | yes | - |
 
-The pattern is hard to see in public data. Chat datasets often do not have timestamps. BurstGPT has timestamps, but not prefix content. Mooncake has fanout-like structure, but the largest groups are often shallow shared templates rather than long shared prefixes. ART is the closest, but the deep repeated-prefix bursts are still rare.
+After going through them, we found two different problems. Some datasets did not contain arrival timestamps, so they could not fully recreate a burst scenario. Others had timestamps, but did not include prefix hashes or content, so we could not tell whether the requests were actually sharing the same KV. Of the datasets that contained both, the pattern barely showed up: Mooncake only reached a 2-request deep-prefix fanout, and ART-Chat reached 25.
 
-That makes sense. Public traces tend to come from chatbots, internal demos, or broad API workloads. The bursty workload we care about is more likely in production systems doing data labeling, batch scoring, document processing, or sub-agent fanout: many requests launched at once, all sharing the same long prompt or document.
+For clarity, our "burst" calculation was: take the first 16 KV block hashes of each request as the prefix key, group requests with the same key, then slide a 10-second window over each group and count the largest number of independent requests that land together. In other words, this is not just raw traffic spiking. It is same-prefix fanout, where many requests arrive close together and can reuse the same long KV prefix.
 
-We decided to create our own dataset called Bursted-ART. Using the real ART replay window, we added burst structure for testing prefix-heavy workloads.
+We hypothesize this happens because public traces are often made from toy/demo traffic, chat tools, or internal employee coding/chat workloads. These traces are useful, but they do not fully cover real enterprise LLM workloads like data labeling, parsing PDFs, batch extraction, or sub-agent fanout, where many requests can share the same long prompt or document. That is what motivated us to create our own dataset, Bursted-ART.
+
+We built Bursted-ART by starting from the original [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M) replay windows, keeping normal ART traffic intact, and adding synthetic windows with synchronized long-prefix bursts. The goal was not to replace ART, but to create a stress test for the same-prefix fanout case that public traces barely contain.
 
 Dataset: [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
+
+Original ART dataset: [ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M)
 
 ## How We Built Bursted-ART
 
@@ -1725,6 +1731,7 @@ The dataset construction code lives in the BTB repo. The important files are:
 - Dataset generator: [3-workload/generate/generate_combined_dataset.py](https://github.com/jwlaboratory/bite-the-bullet/blob/main/3-workload/generate/generate_combined_dataset.py)
 - Dataset upload helper: [3-workload/generate/upload_to_hf.py](https://github.com/jwlaboratory/bite-the-bullet/blob/main/3-workload/generate/upload_to_hf.py)
 - Public dataset: [shreybirmiwal/Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART)
+- Original ART dataset: [alessiotoniolo/ART-Chat-2.5M](https://huggingface.co/datasets/alessiotoniolo/ART-Chat-2.5M)
 - Simulator replay loader: [inference-sim/workload.py](https://github.com/jwlaboratory/inference-sim/blob/main/workload.py)
 
 To regenerate the dataset locally from the BTB repo:
