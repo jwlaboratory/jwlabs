@@ -14,15 +14,15 @@ window.BLOG_POSTS = [
     hidden: true,
     status: "In Progress",
     authors: "Shrey Birmiwal and Anish Bhat",
-    summary: "In-progress private draft from the Google Doc on specializing speculative decoding drafters with LoRA adapters per language.",
+    summary: "In-progress private draft from the Google Doc on specializing speculative decoding drafters with LoRAs per language.",
     markdown: markdown(() => { /*
 
 # Specialization is maybe all Speculation needs
 
 
-TLDR: We made speculative decoding up to 15% faster per domain and generalized to 6% faster by specializing the drafter with LoRA adapters per language. However, we find that this technique is largely beneficial only for under-trained languages, and that a single combined LoRA captures most of the specialization gains. We theorize this is because of low interference between languages, and believe specialization will perform better in more fine-grained domains (future work).
+TLDR: We made speculative decoding up to 15% faster per domain and generalized to 6% faster by specializing the drafter with LoRAs per language. However, we find that this technique is largely beneficial only for under-trained languages, and that a single combined LoRA captures most of the specialization gains. We theorize this is because of low interference between languages, and believe specialization will perform better in more fine-grained domains (future work).
 ## What and why are we specializing?
-Speculative decoding is an inference technique in which a draft model is used to propose multiple tokens for the target model to verify all at once, instead of the target model having to generate one token at a time sequentially. For more information about how speculative decoding works, read this blog.
+Speculative decoding is an inference technique in which a draft model is used to propose multiple tokens for the target model to verify all at once, instead of the target model having to generate one token at a time sequentially. For more information about how speculative decoding works, read [this blog](https://jwlabs.vercel.app/post/speculative-decoding-first-principles).
 
 
 You can think of the speculator (the drafter) as an approximation for the verifier (the target). An important detail is that the drafter is not trying to be correct in an external sense, but rather trying to copy the verifier.
