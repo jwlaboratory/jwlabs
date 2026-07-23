@@ -1610,7 +1610,7 @@ If the prefix is too short, the burst count has not fired, or no resident copy e
 
 The best-case scenario is a sustained same-prefix burst where the first few requests reveal the pattern and the rest of the burst arrives after RDMA copies have finished. In that case, BTB keeps the cache-hit benefit of cache-aware routing, but gives the burst multiple warm queues instead of one hot queue.
 
-The worst-case scenario is a burst that is too short, arrives too quickly, or starts from a brand-new prefix. BTB cannot warm KV that does not exist yet, so the first cold request still pays prefill. If the model is extremely compute-heavy, or if the burst ends before copies finish, warming helps less.
+The worst-case scenario is a burst that is too short, arrives too quickly, or starts from a brand-new prefix. If the model is extremely compute-heavy, or if the burst ends before copies finish, warming helps less because the latency is dominated by compute or queueing that KV movement cannot remove, or because there are not enough later requests left to amortize the RDMA copy.
 
 The results were extremely positive on the Bursted-ART dataset:
 
