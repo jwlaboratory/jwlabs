@@ -18,6 +18,8 @@ window.BLOG_POSTS = [
 
 # Specialization Is All Speculation Needs
 
+By: Shrey Birmiwal and Anish Bhat
+
 **Status:** In progress / private draft.
 
 GitHub: [jwlaboratory/SpecSpec](https://github.com/jwlaboratory/SpecSpec)
