@@ -1881,7 +1881,7 @@ This prefix KV can be stored in a few different places. First, it can be stored 
 | Disk / NVMe | 7 GB/s | 7 GB/s (shared) | local SSD prefix cache |
 | Prefill | 989 TFLOP/s peak | 1.98 PFLOP/s eff (MFU 0.5) | recompute |
 
-The cost of regenerating the KV depends on the length of the prefix that was matched. The longer the prefix, the bigger the cost of generating compared to replicating or moving from an already existing source like RAM. The table below reports milliseconds to make the matched prefix KV available for one request at each prefix length.
+The cost of regenerating the KV depends on the length of the prefix that was matched. The longer the prefix, the bigger the cost of generating compared to replicating or moving from an already existing source like RAM. The table below reports milliseconds to make the matched prefix KV available for one request at each prefix length, on the standard setup: one node = 4xH100 tensor-parallel, serving Llama-3.3-70B fp16 (KV ~320 KiB/token, MFU 0.5).
 
 | Source | 500 tok (ms) | 1k tok (ms) | 2k tok (ms) | 8k tok (ms) | 16k tok (ms) | 32k tok (ms) | vs. prefill |
 | --- | --- | --- | --- | --- | --- | --- | --- |
