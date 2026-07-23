@@ -1629,6 +1629,14 @@ The result speedup is shown below:
 
 ![Mean TTFT for cache-aware routing versus early RDMA warming](/content/biting-the-bullet/results.png)
 
+# Related Work
+
+BTB is an project at the intersection of predictive resource managemment and cache-aware routing. 
+
+On the predictive side, [PreServe](https://arxiv.org/abs/2504.03702) proposes a load anticipator that forecasts incoming request load and maintains a KV cache memory usage projection map to guide proactive scaling. Although similar to BTB, this operates at cluster scale over longer timescales rather than per-burst replication over seconds. [Cachewise](https://arxiv.org/abs/2606.16824) predicts KV block reuse times for coding agents from the tool-call metadata and then evicts less aggressively when reuse is more likely. The Learned Prefix Caching paper (https://openreview.net/pdf?id=Vj48eXaQDM) trains a small model on prompt content to predict whether a conversation will continue and uses that to decide what to evict. These papers show that predictive signals help, but they do not address the same prefix burst case with RDMA replication. 
+
+On the routing side, [Preble](https://arxiv.org/abs/2407.00023) and [Mooncake](https://arxiv.org/abs/2407.00079) discuss prefix cache reuse across many nodes, but they respond to load imbalance after it happened by moving KV around. The idea of duplicating work to cut tail latency goes back to [Jeff Dean and Luiz Barroso's "The Tail at Scale"](https://research.google/pubs/the-tail-at-scale/). BTB is the specialization of that idea for KV replication over RDMA triggered on burst detection. 
+
 # Future Work
 
 1. We used [Infer-Sim](/post/infer-sim) and the [Bursted-ART](https://huggingface.co/datasets/shreybirmiwal/Bursted-ART) dataset, which includes synthetic bursts. This was great for testing the mechanism, but the next step is to test BTB in a production serving stack with real inference requests, real queues, real scheduler behavior, and real cache pressure.
