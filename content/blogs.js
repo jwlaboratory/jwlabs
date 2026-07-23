@@ -1499,7 +1499,7 @@ By: Shrey Birmiwal and Anish Bhat
 
 GitHub: [jwlaboratory/bite-the-bullet](https://github.com/jwlaboratory/bite-the-bullet)
 
-TLDR: When serving inference to production users, you often see sudden spikes of requests with the same long prefix (data labeling jobs, fanning out subagents, etc). We argue that public traces don't capture this pattern, and current GPU routing algorithms leave gaps under this environment. We share Biting the Bullet (BTB), which predicts large bursts and proactively replicates prefix cache from RDMA into GPU HBM before the burst lands. BTB cuts mean time to first token by 10-60% versus SGLang's default cache-aware router.
+TLDR: When serving inference to production users, you often see sudden spikes of requests with the same long prefix (data labeling jobs, fanning out subagents, etc). We argue that public traces don't capture this pattern, and current GPU routing algorithms leave gaps under this environment. We share Biting the Bullet (BTB), which predicts large bursts and proactively replicates prefix cache from RDMA into GPU HBM before the burst lands. BTB cuts mean time to first token by 10-60% versus SGLang's default cache-aware router, and reduces p95 time to first token by up to 80-82% in the best cases.
 
 # Background
 
