@@ -8,338 +8,210 @@ const markdown = (template) =>
 window.BLOG_POSTS = [
   {
     slug: "specialization-is-all-speculation-needs",
-    title: "Specialization is maybe all Speculation needs",
+    title: "Specialization is (sometimes) all Speculation needs",
     date: "2026-07-23",
     category: "Research",
     hidden: true,
     status: "In Progress",
     authors: "Shrey Birmiwal and Anish Bhat",
-    summary: "In-progress private draft from the Google Doc on specializing speculative decoding drafters with LoRAs per language.",
+    summary: "We made speculative decoding 8% faster on aggragate and upwards of 46% faster on out of distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a singular combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring signicant speedups.",
     markdown: markdown(() => { /*
 
-# Specialization is maybe all Speculation needs
+# Specialization is (sometimes) all Speculation needs
 
+**TLDR:** We made speculative decoding 8% faster on aggragate and upwards of 46% faster on out of distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a singular combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring signicant speedups.
 
-TLDR: We made speculative decoding up to 15% faster per domain and generalized to 6% faster by specializing the drafter with LoRAs per language. However, we find that this technique is largely beneficial only for under-trained languages, and that a single combined LoRA captures most of the specialization gains. We theorize this is because of low interference between languages, and believe specialization will perform better in more fine-grained domains (future work).
-## What and why are we specializing?
-Speculative decoding is an inference technique in which a draft model is used to propose multiple tokens for the target model to verify all at once, instead of the target model having to generate one token at a time sequentially. For more information about how speculative decoding works, read [this blog](https://jwlabs.vercel.app/post/speculative-decoding-first-principles).
+# What and why are we specializing?
 
+Speculative decoding is an inference technique in which a draft model is used to propose multiple tokens for the target model to verify all at once, instead of the target model having to generate one token at a time sequentially. For more information about how speculative decoding works, [read this blog](https://jwlabs.vercel.app/post/speculative-decoding-first-principles).
 
 You can think of the speculator (the drafter) as an approximation for the verifier (the target). An important detail is that the drafter is not trying to be correct in an external sense, but rather trying to copy the verifier.
 
-![Speculative decoding drafter copying the target model](/content/specialization-is-all-speculation-needs/image1.png)
-
-
-
-
-
-
+![Sketch: the target generates "The sky is GREEN" while the drafter proposes "The sky is BLUE" — the first three tokens are accepted and the last is rejected, illustrating that the drafter's job is to copy the target, not to be externally correct](/content/specialization-is-all-speculation-needs/image1.png)
 
 We hypothesized that since the drafter is a small approximation of the larger verifier, it has to pick and choose what areas to have the best results. While common regions get modeled well, long-tail regions have gaps. If this is true, specializing the drafter should help us where the base drafter is weakest (out of distribution).
 
-![Drafter approximation is strongest near common regions and weakest in the tails](/content/specialization-is-all-speculation-needs/image2.png)
-
-
-
-
-
-
-
-
+![Sketch of two overlapping distributions: a wide "target model" curve and a narrower "drafter" curve that matches the target only near the peak ("drafter approx"), leaving "missed long tail" regions on both sides where the drafter fails to model the target](/content/specialization-is-all-speculation-needs/image2.png)
 
 People have tried specialization for speculators in the past, but minimal or no work has been done on dynamic speculators, specializing diffusion speculators like DFlash, benchmarking at larger batch sizes, using unmerged LoRA/NaRA to serve many specializations at once, and comparing with combined/full finetunes. Below we experiment with different domains, different routing, and different trained adapters and see if they improve speculators.
-## Speculators are uneven across languages
-We benchmarked the two biggest speculators for Qwen/Qwen3-8B across many languages:
-* DFlash: z-lab/Qwen3-8B-DFlash-b16, a 1B block-diffusion drafter that has 15 speculative tokens per step
-* EAGLE3: RedHatAI/Qwen3-8B-speculator.eagle3, a 1-layer autoregressive head with 3 speculative tokens per step
 
+# Speculators are uneven across languages
+
+We first benchmarked the most popular speculator (z-labs/Qwen3-8b-DFlash-b16, a 1B block-diffusion drafter) for Qwen/Qwen3-8B across many languages.
 
 We split WildChat 4.8M by language column and kept 26 languages with at least 1,200 usable prompts/conversations (1,000 train / 100 validation / 100 test split after deduplication). Then, we ran the target model and compared the acceptance rate on the 26 languages, producing the results below.
 
-![Base DFlash acceptance across clean language lanes](/content/specialization-is-all-speculation-needs/image3.png)
+| language | base DFlash acceptance |
+| :---- | :---- |
+| Polish | 3.57% |
+| Hungarian | 3.92% |
+| Korean | 4.19% |
+| Dutch | 4.55% |
+| Romanian | 4.60% |
+| Turkish | 4.89% |
+| English | 12.90% |
+| Latin | 11.85% |
 
+We found that the speculator is extremely domain sensitive, supporting our hypothesis, having almost 4X variation in accuracy between the highest and lowest accurate languages.
 
-
-
-
-language
-	base DFlash acceptance
-	Polish
-	3.57%
-	Hungarian
-	3.92%
-	Korean
-	4.19%
-	Dutch
-	4.55%
-	Romanian
-	4.60%
-	Turkish
-	4.89%
-	English
-	12.90%
-	Latin
-	11.85%
-
-
-
-
-We found that the speculators are extremely domain sensitive, supporting our hypothesis, having almost 4X variation in accuracy between the highest and lowest accurate languages.
-
-
-
-
-
-
+![Base DFlash acceptance across 26 WildChat languages](/content/specialization-is-all-speculation-needs/image3.png)
 
 It makes sense that languages such as English and Latin with the highest concentration of training data would perform the best where all languages like Polish and Hungarian with likely less training data would perform worse.
-## Training Language-Specific LoRAs
 
+# Training Language-Specific LoRAs
 
-LoRA is a process of fine tuning language models
-LoRA can also be done for diffusion models
+LoRA is a process of fine tuning language models by freezing the original model weights and only training a small slice of the paramters (an additive adapter). This prevents the original model from forgetting any information and train with much less data.
 
+We adapt this LoRA for block diffusion models by adding an adapter for all of the attention layers.
 
 Using WildChat-4.8M, we split first-turn prompts by the dataset's language column, used up to 1,000 train / 100 val / 100 test prompts per language, and generated target answers greedily with Qwen/Qwen3-8B.
 
+For each train sequence, we capture the hidden states and the output of the target model. Using this data, we sample random positions (up to 48 times per sequence) in the sequence, and use this to train a rank 16 LoRA for the drafter.
 
-The process we followed can be replicated by:
-
-1. Fetch WildChat prompts by language
-2. Generate target model answers
-3. Capture target hidden states for DFlash training[a]
-4. Train one rank-16 LoRA per language
-5. Benchmark the base model vs the matching LoRA for the test split
+![Swedish rank-16 LoRA validation loss and accept rate converging](/content/specialization-is-all-speculation-needs/image4.png)
 
 
 The results show that clearly, specializing helps the model.
 
-![Own-language LoRA gains across clean language lanes](/content/specialization-is-all-speculation-needs/image4.png)
+![Own-language LoRA acceptance gains over base, concentrated on the weakest languages](/content/specialization-is-all-speculation-needs/image5.png)
 
+| language | base | own LoRA | gain | relative |
+| :---- | ----: | ----: | ----: | ----: |
+| Swedish | 6.73% | 8.82% | **+2.09pp** | **+31%** |
+| Turkish | 4.89% | 6.88% | +1.99pp | +41% |
+| Hungarian | 3.92% | 5.72% | +1.80pp | +46% |
+| Ukrainian | 5.65% | 7.23% | +1.58pp | +28% |
+| Indonesian | 5.18% | 6.68% | +1.50pp | +29% |
+| Dutch | 4.55% | 6.03% | +1.48pp | +33% |
+| Vietnamese | 7.31% | 8.75% | +1.44pp | +20% |
+| Malay | 6.19% | 7.60% | +1.41pp | +23% |
+| Romanian | 4.59% | 5.88% | +1.29pp | +28% |
+| Korean | 4.19% | 5.31% | +1.12pp | +27% |
+| Polish | 3.57% | 4.66% | +1.09pp | +31% |
+| Persian | 6.50% | 7.52% | +1.02pp | +16% |
+| Portuguese | 6.59% | 7.46% | +0.87pp | +13% |
+| Tagalog | 6.44% | 7.16% | +0.72pp | +11% |
+| Arabic | 5.73% | 6.43% | +0.70pp | +12% |
+| Russian | 8.20% | 8.61% | +0.41pp | +5% |
+| Chinese | 7.54% | 7.85% | +0.31pp | +4% |
+| German | 8.79% | 9.07% | +0.28pp | +3% |
+| French | 10.98% | 11.24% | +0.26pp | +2% |
+| Spanish | 11.47% | 11.68% | +0.21pp | +2% |
+| Esperanto | 6.58% | 6.78% | +0.20pp | +3% |
+| Italian | 7.84% | 8.00% | +0.16pp | +2% |
+| Latin | 11.82% | 11.90% | +0.08pp | +1% |
+| Japanese | 7.94% | 8.02% | +0.08pp | +1% |
+| Yoruba | 8.57% | 8.61% | +0.04pp | +0% |
+| English | 12.89% | 12.80% | −0.09pp | −1% |
 
+We observed that the weaker languages got the largest gains. For example, Hungarian jumped **+46%** relative to its base. On the other hand, stronger languages like English actually got slowed down, probably because the base was already so strong. This supports the hypothesis that these models have the largest headroom in out-of-distribution regimes.
 
+# LoRA beats a full fine tune
 
+We next wanted to make sure that a full fine-tune does not vastly outperform the LoRA. So we used the same training data to train a full fine-tune of the model. Each domain’s full finetune performed *worse* than the LoRA
 
+![Own-language LoRA gain vs full DFlash fine-tune on the weakest language lanes](/content/specialization-is-all-speculation-needs/image6.png)
 
+| language | base | own LoRA | own gain | full FT | full gain |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| Polish | 3.57% | 4.66% | \+1.09pp (+30.5%) | 3.66% | \+0.09pp (+2.5%) |
+| Hungarian | 3.92% | 5.72% | \+1.80pp (+45.9%) | 4.04% | \+0.12pp (+3.1%) |
+| Korean | 4.19% | 5.31% | \+1.12pp (+26.7%) | 4.30% | \+0.11pp (+2.6%) |
+| Dutch | 4.55% | 6.03% | \+1.48pp (+32.5%) | 4.68% | \+0.13pp (+2.9%) |
 
+We believe this is not showing that full fine-tune is bad or impossible, but rather that tuning all the paramters at once would require a lot more data to not be starved, whilst a limited rank-16 adapter (small % of total parameters) would converge much faster.
 
+# Training a router between LoRA's
+Additionally, we train a tiny router that uses the target-hidden features that DFLash uses anyways. The router is a 2-layer MLP that takes the hidden features (20480) to route between the 26 languages with 10.5M parameters, and since it is so small it is basically negligable cost of compute/time.
 
-The weaker languages got larger % speedup, while some of the stronger languages actually got a slowdown, i.e., English. This makes sense and supports the hypothesis that these models have the largest headroom in out-of-distribution regions.
+![26-way language router training curve — train loss and validation accuracy](/content/specialization-is-all-speculation-needs/image7.png)
 
+It scores very high at Val 84.69% and Test 81.58%:
+![26-way WildChat language router per-class accuracy](/content/specialization-is-all-speculation-needs/image8.png)
 
+(English here contains other stuff as well, like SQL, Latin, etc, which may be dragging down the score)
 
 
-## LoRA vs full fine tune
 
+# Combined LoRA keeps a lot of the gains
 
-We next wanted to make sure that a full fine-tune does not vastly outperform the LoRA. So we used the same training data to train a full fine-tune of the model. Each domain’s full finetune performed worse than the LoRA
+Next, we wanted to see if the LoRA specialation was due to each adapter uniquly learning the field, or was just because it was exposed to more specific knowledge. The hint that told us to investigate this was that the hidden states cleanly seperated the different languages well when routing between languages.
 
-![Full fine-tuning does not recover the LoRA gain](/content/specialization-is-all-speculation-needs/image5.png)
+We also wondered if combining many languages could improve performance. Some languages come from the same family and carry semantic meaning that is complimentary.
 
 
+We tried an experiment of training a singular "combined LoRA" over all the languages and compared the performance with the own LoRA.
 
+![Base vs own-language LoRA vs combined LoRA across 26 clean WildChat languages](/content/specialization-is-all-speculation-needs/image9.png)
 
+Looking at the net speedup per domain []
 
- Image
+![Analytic speedup by language: base vs own vs combined](/content/specialization-is-all-speculation-needs/image10.png)
 
 
+This implies we just need to train on each domain individually and make sure the model learns to cleanly seperate each task in it's hidden states for better drafter performance. Because language is an easily separable task, it is largely FIRST a matter or more training data for out-of-distribution languages to improve the quality. When this saturates, then, perhaps our specialization will further shine.
 
-language
-[b]
-base
-	own LoRA
-	own gain
-	full FT
-	full gain
-	Polish
-[c]
-3.57%
-	4.65%
-	+1.08pp (+30.3%)
-	3.65%
-	+0.08pp (+2.2%)
-	Hungarian
-[d]
-3.92%
-	5.78%
-	+1.86pp (+47.4%)
-	4.03%
-	+0.11pp (+2.8%)
-	Korean
-[e]
-4.19%
-	5.25%
-	+1.06pp (+25.3%)
-	4.29%
-	+0.10pp (+2.4%)
-	Hebrew
-[f]
-4.23%
-	6.39%
-	+2.16pp (+51.1%)
-	4.70%
-	+0.47pp (+11.1%)
-	Dutch
-[g]
-4.55%
-	6.03%
-	+1.48pp (+32.5%)
-	4.68%
-	+0.13pp (+2.9%)
+# Interference gets real in more fine grained domains
 
+In domains in which the model has a hard time cleanly seperating, we experinece the "muddling" of combined experts (more training data does not solve, the small # of params means it muddles between 2 experts, and therfor needs specialization).
 
+We tried cursory experiments (but leave the full experiments up for a follow up blog).
 
+First, we build an interference ladder that shows 10 combined domains vs 20 and 40 comined domains.
 
-We believe this is not showing that full fine-tune is bad or impossible, but rather:
+| combined adapter | mean gap vs own specialist | 95% CI | gain retained |
+| :---- | ----: | :----: | ----: |
+| 10 domains | −0.21pp | [−0.29, −0.13] | ~74% |
+| 20 domains | −0.27pp | [−0.34, −0.20] | ~70% |
+| 40 domains | −0.28pp | [−0.36, −0.19] | ~67% |
 
-1. A full fine-tune needs much more data than 1,000 rows. We see this https://arxiv.org/pdf/2410.21228 in various papers exploring … that less data gives similar results
-2. The particular bias of training on less with LoRA allows it to converge much faster
+As you can see, as you increase the number of experts, the interference increases and specialists shine further.
 
 
-We also notice that because the gains are relative (target model being poor on a domain) means that the target can’t just magically learn it all. But it can align it self more …
-(write more abt this and how it might mean smth abt the information theory / match the bias of Lora vs full fine tune)
-## Routing and the Combined LoRA
+Second, to prove that languages are easy and low interference, we try other english subdomains (code_python, code_sql, ood_legal, ood_medical, ood_financial, task_math_reasoning, task_summarization)
 
+<image>
 
-We trained a tiny sequence-level router over the same target-hidden features DFlash consumes. It chooses among language adapters plus a fallback bucket. The router got 100% validation accuracy and 100% test accuracy on the held-out router set.[h] We did this over the 5 worst languages.
+The perdomain specialists beat the base 7/7, but the key point to see is that the combined adapater only retains about 20% of the specialist gain.
 
-![Adapter router results for five language specialists](/content/specialization-is-all-speculation-needs/image6.png)
+<image>
 
 
-
-
-
-
-
-We then tried all 26 languages as well, and found really good results again.
-
-![26-way clean language router accuracy](/content/specialization-is-all-speculation-needs/image7.png)
-
-
-
-
-
-(English here contains other stuff as well, like SQL, latin, etc)
-
-
-
-
-
-
-
-
-This sounds amazing, but we realized that this was a red flag. If the model is able to perfectly separate languages internally, that means, there is no need for specialization (as it can already separate and learn the languages individually, no interference).
-
-
-We tried an experiment of training a singular combined LoRA over all languages and compared the performance with the own LoRA.
-
-![Acceptance rates by language: base vs own vs combined](/content/specialization-is-all-speculation-needs/image8.png)
-
-
-
-
-
-Looking at the net speedup per domain
-
-
- labeled speedup chart
-
-![Analytic speedup by language](/content/specialization-is-all-speculation-needs/image9.png)
-
-
-labeled
-
-
-
-
-
-
-Combined LoRA disproves specialization *for this case.* We believe because language is an easily separable task, it is largely FIRST a matter or more training data for out-of-distribution languages to improve the quality. When this saturates, then, perhaps our specialization will further shine.
-
-
-
-
-## Serving Cost
-
+# Serving Cost
 
 There is two different ways of measuring the net speedup of the new speculators.
 
-
 1. Theoretical analytical
-We can predict from the increase in mean accepted length in proportion to the increased costs of speculating, the net speedup.
-speedup ~= mean_accept_length / (1 + drafter_overhead)
+   We can predict from the increase in mean accepted length in proportion to the increased costs of speculating, the net speedup.
+   speedup \~= mean\_accept\_length / (1 \+ drafter\_overhead)
 
+| mode | meaning |
+| :---- | :---- |
+| base | DFlash, no LoRA |
+| merged\_combined | one combined language LoRA folded into DFlash weights |
+| merged\_own | routed traffic to N already-merged language specialists |
+| hotswap\_own | one drafter with unmerged per-language LoRA hot swapping |
 
+The merged combined LoRA is the production path we care about: it is folded into the DFlash weights before decoding, so its serving path is the same as the base drafter.
 
+![Production wall-clock across serving modes: target-only, base, merged combined, N merged specialists, hot-swapped](/content/specialization-is-all-speculation-needs/image11.png)
 
-mode
-	meaning
-	base
-	DFlash, no LoRA
-	merged_combined
-	one combined language LoRA folded into DFlash weights
-	merged_own
-	routed traffic to N already-merged language specialists
-	hotswap_own
-	one drafter with unmerged per-language LoRA hot swapping
-	The merged combined LoRA is the production path we care about: it is folded into the DFlash weights before decoding, so its serving path is the same as the base drafter.
+| mode | tok/s | actual speedup vs target-only | relative vs base DFlash | accept | mean accept length |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| target-only | 46.78 | 1.000x | \- | \- | \- |
+| base DFlash | 66.33 | 1.418x | 1.000x | 6.46% | 1.969 |
+| merged combined LoRA | 70.23 | 1.501x | 1.059x | 7.17% | 2.076 |
+| N merged own LoRAs | 70.55 | 1.508x | 1.064x | 7.33% | 2.099 |
+| hot-swapped own LoRAs | 54.73 | 1.170x | 0.825x | 7.32% | 2.098 |
 
-![Production wall-clock speedup by LoRA serving mode](/content/specialization-is-all-speculation-needs/image10.png)
-
-
-
-
-
-
-
-mode
-	tok/s
-	actual speedup vs target-only
-	relative vs base DFlash
-	accept
-	mean accept length
-	target-only
-	46.78
-	1.000x
-	-
-	-
-	-
-	base DFlash
-	66.33
-	1.418x
-	1.000x
-	6.46%
-	1.969
-	merged combined LoRA
-	70.23
-	1.501x
-	1.059x
-	7.17%
-	2.076
-	N merged own LoRAs
-	70.55
-	1.508x
-	1.064x
-	7.33%
-	2.099
-	hot-swapped own LoRAs
-	54.73
-	1.170x
-	0.825x
-	7.32%
-	2.098
-	So the combined LoRA gives a +5.9% wall-clock gain over base DFlash on this mixed-language serving stream, and the one-time merge setup was only 0.073s. The N-merged-specialist path gives +6.4% over base DFlash, only about +0.5% relative to the merged combined LoRA. In other words, for the clean language subset, the combined merged adapter gets almost all of the wall-clock benefit without serving N separate specialist drafters.
+So the combined LoRA gives a \+5.9% wall-clock gain over base DFlash on this mixed-language serving stream, and the one-time merge setup was only 0.073s. The N-merged-specialist path gives \+6.4% over base DFlash, only about \+0.5% relative to the merged combined LoRA. In other words, for the clean language subset, the combined merged adapter gets almost all of the wall-clock benefit without serving N separate specialist drafters.
 The hot-swap result is the cautionary row. It gets essentially the same acceptance as the merged specialists, but drops to 54.73 tok/s, or 0.825x relative to base DFlash. The measured adapter-copy time was tiny, only 0.237s across 625 language switches; the slowdown comes from keeping the LoRA path unmerged inside the drafter forwards. For this workload, specialization only turns into serving speed when the adapter is merged into the drafter weights.
 
+## **Conclusion**
 
-## Conclusion
 For languages, specialization is almost all speculation needs.
 
-
-
-
-## Appendix And Future Ideas
-
+## **Appendix And Future Ideas**
 
 1. Trying with Eagle, independent drafter
    1. We briefly tried, saw eagle has higher acceptance rate, but smaller proposal depth
@@ -351,14 +223,19 @@ For languages, specialization is almost all speculation needs.
 3.  Rank ladder (prelimary results show languages much gains, other stuff not much) prob bc more to learn
 
 
-[a]how do u get the training sets per row? how many examples per ? loss is concentrated at teh start?
-[b]add why we picked these languages was bc they were lowest and i thought full fine tune might bring in  new capacbiltiy (rather than align)
-[c]add why we picked these languages was bc they were lowest and i thought full fine tune might bring in  new capacbiltiy (rather than align)
-[d]add why we picked these languages was bc they were lowest and i thought full fine tune might bring in  new capacbiltiy (rather than align)
-[e]add why we picked these languages was bc they were lowest and i thought full fine tune might bring in  new capacbiltiy (rather than align)
-[f]add why we picked these languages was bc they were lowest and i thought full fine tune might bring in  new capacbiltiy (rather than align)
-[g]add why we picked these languages was bc they were lowest and i thought full fine tune might bring in  new capacbiltiy (rather than align)
-[h]we did this on the smaller set from above ^
+
+We also did a quick sweep over a the LoRA rank to see if the depth of rank mattered. When doing LoRA, we take the model state as input, squeeze it down to r dimensions by A, then expand back out to B. Essentially, the rank becomes the width of the information bottleneck.
+
+language	base	own r16	own r64
+Polish	3.1%	4.4%	5.0%
+Korean	3.5%	5.1%	5.8%
+Italian	8.1%	8.5%	8.7%
+Japanese	5.0%	5.9%	6.3%
+German	6.8%	7.2%	7.3%
+
+*(Rank sweep from the earlier 512-token-cap training run; numbers are directional. The trend is unaffected by the cap — retraining without truncation only raises the weak-language gains.)*
+
+This shows us that higher rank helps the most on already weak languages where the model needs to not just align but actually learn new knowledge. On the other domains that already have knowledge, a smaller rank helps align the drafter to the target.
 
 */ }),
   },
@@ -373,8 +250,8 @@ For languages, specialization is almost all speculation needs.
 
     # Using Large Language Models and Reinforcement Learning to Beat \-O3 Assembly Code Gen
 
-By: Shrey Birmiwal, Avi Agrawal, Damodar Kamani, Krish Patel-Shah, Roger Wang, Sambit Kanjilal, Mohammad Al Masalmeh, Praneel Bhagavatula, Rayan Nyaupane, Shashank Chathapuram, Vedanth Chamala, and Shriyaa Balaji.  
-Advised by: Dhilan Shah 
+By: Shrey Birmiwal, Avi Agrawal, Damodar Kamani, Krish Patel-Shah, Roger Wang, Sambit Kanjilal, Mohammad Al Masalmeh, Praneel Bhagavatula, Rayan Nyaupane, Shashank Chathapuram, Vedanth Chamala, and Shriyaa Balaji.
+Advised by: Dhilan Shah
 
 # Preface
 
@@ -385,9 +262,9 @@ We are college freshmen with little or no experience in the fields discussed in 
 We share a few projects in our quest to learn and advance the frontier of compiler code generation:
 
 1. A failed attempt at multi-turn RL’d LLM to debug assembly, building on top of SuperCoder: LLM superoptimizer
-2. TBD A specially trained version of SuperCoder to maintain performance even for long-context programs, using lazy-edits and fast-apply  
-3. TBD Our exploration of using graph neural networks, building on top of PROGRAML for LLMs to better understand and generate assembly  
-4. TBD A genetics-based algorithm combined with RL to determine optimal compiler flag orderings, built on top of AutoPhase and Genetic algoxyz  
+2. TBD A specially trained version of SuperCoder to maintain performance even for long-context programs, using lazy-edits and fast-apply
+3. TBD Our exploration of using graph neural networks, building on top of PROGRAML for LLMs to better understand and generate assembly
+4. TBD A genetics-based algorithm combined with RL to determine optimal compiler flag orderings, built on top of AutoPhase and Genetic algoxyz
 5. TBD Our open-source pip-install benchmarking tool standardizes and combines researched assembly code benchmarking (both static and dynamic) into an easy-to-use package
 
 # The Problem: Why mess with compilers?
@@ -398,20 +275,20 @@ The compiler exposes various flags that can set the amount of ‘aggressiveness�
 
 In the example below, it is easy to see that the for loop is doing a simple memcopy. The compiler lacks the "big picture" intuition to recognize that the entire assembly can be written with just one operation. The compiler acts strictly as a state machine, trying to make *this specific loop* faster.
 
-Original code:  
-\`\`\`c  
-for (int i \= 0; i \< total\_bytes; i++) {   
-d\[i\] \= s\[i\];   
-}  
-\`\`\`  
-Alternative, better:  
-\`\`\`c  
-memcpy(dest, src, num\_elements \* sizeof(int));   
+Original code:
+\`\`\`c
+for (int i \= 0; i \< total\_bytes; i++) {
+d\[i\] \= s\[i\];
+}
+\`\`\`
+Alternative, better:
+\`\`\`c
+memcpy(dest, src, num\_elements \* sizeof(int));
 \`\`\`
 
 Another example, albeit slightly more abstract: Imagine the computer needs to sum 100 floating-point numbers to calculate a shadow in a video game.
 
-We would expect an optimized computer to sum together parallel accumulators. But, since floating point addition *isn’t* commutative (rounding errors, precision errors), and since the compiler has to maintain 100% accuracy, the computer has to add them up one by one, being extremely slow. Imagine an LLM that could understand “okay, the shadow being off a micromillimeter for a 10x speedup is a good tradeoff.” 
+We would expect an optimized computer to sum together parallel accumulators. But, since floating point addition *isn’t* commutative (rounding errors, precision errors), and since the compiler has to maintain 100% accuracy, the computer has to add them up one by one, being extremely slow. Imagine an LLM that could understand “okay, the shadow being off a micromillimeter for a 10x speedup is a good tradeoff.”
 
 We envision LLMs being used to understand the “*programmer's intent,”* enabling the compiler to negotiate tradeoffs, make smarter decisions, and see the bigger vision, creating maximally optimized code. A quote from Elon Musk’s xAI all-hands: “In the next year, we see AI generating optimized binaries directly \- no need for compilers.”
 
@@ -423,7 +300,7 @@ We were interested in seeing how large language models could create binaries of 
 
 The SuperCoder paper describes providing an LLM with C code and gcc \-o3-generated code, and asking the LLM to generate more optimized assembly code. They use a dataset derived from competitive programming, so that a valid set of inputs and outputs is saved and can be used to “loosely” verify the correctness of the generated code.
 
-SuperCoder reports base models perform poorly \- Qwen2.5-Coder-7B compiles only 77.9% and passes all tests 61.4% of the time, resulting in an average speedup of 1.1x. However, after training the model using RL on 7,872 programs (rewarding for speedup, and 0 reward for no compilation), they boast SuperCoder (PPO) at 96% compile pass, 95% test pass, and an average of 1.46x speedup. 
+SuperCoder reports base models perform poorly \- Qwen2.5-Coder-7B compiles only 77.9% and passes all tests 61.4% of the time, resulting in an average speedup of 1.1x. However, after training the model using RL on 7,872 programs (rewarding for speedup, and 0 reward for no compilation), they boast SuperCoder (PPO) at 96% compile pass, 95% test pass, and an average of 1.46x speedup.
 
 This is pretty amazing \-- but realizing that compilers have to always ensure correctness, we wondered how we can improve the reliability of these models. We replicate the SuperCoder paper setup as closely as possible (same HF dataset split, same prompt source, same x86-64 Linux toolchain and benchmark path), with generation on Modal. We then inspected *why* the remaining runs fail, to see whether failures look like irreducible model limits or like repairable mistakes.
 
@@ -435,8 +312,8 @@ This is pretty amazing \-- but realizing that compilers have to always ensure co
 
 Reading through these errors, we wondered: why is it that the LLM is making such silly, simple mistakes? When you ask something like "Claude Code, go through the same task," we noticed that Claude Code would break the problem into steps:
 
-1. Hypothesizing how to improve it  
-2. Actually applying the assembly code changes  
+1. Hypothesizing how to improve it
+2. Actually applying the assembly code changes
 3. Running, debugging, and further optimizing it in an agentic loop
 
 We wondered, can we bring this agentic behavior into Super Coder?
@@ -449,19 +326,19 @@ The goal is a multi-stage agentic loop by first adding a stage that proposes wha
 
 We use Qwen2.5-Coder-7B-Instruct with a generic instruction: list optimizations that might speed up the assembly.
 
-Prompt:  
-\`\`\`  
+Prompt:
+\`\`\`
 You are given C source code and compiler-generated x86-64 assembly.
 
-Task: List optimizations that might improve the execution speed of this assembly. Give a numbered list.  
+Task: List optimizations that might improve the execution speed of this assembly. Give a numbered list.
 \`\`\`
 
-Example Results (nearly identical for all input)  
-\`\`\`  
-1\. Use SIMD instructions  
-2\. Optimize loop unrolling  
-3\. Use cache-friendly data structures  
-4\. Profile and optimize for hot loops  
+Example Results (nearly identical for all input)
+\`\`\`
+1\. Use SIMD instructions
+2\. Optimize loop unrolling
+3\. Use cache-friendly data structures
+4\. Profile and optimize for hot loops
 \`\`\`
 
 This is useless because the model fills the rubric with generic performance vocabulary instead of grounded assembly reads. The second stage model treats this input as 100% knowledge, so it tries to optimize with a pigeonhole of looking at garbage.
@@ -470,64 +347,64 @@ This is useless because the model fills the rubric with generic performance voca
 
 We use the same model, but force the prompt to force the model to be more specific.
 
-Prompt:  
-\`\`\`  
-You are given C source code and its compiler-generated x86-64 assembly.  
+Prompt:
+\`\`\`
+You are given C source code and its compiler-generated x86-64 assembly.
 Analyze the SPECIFIC assembly below and list concrete, actionable optimizations.
 
-Rules:  
-\- Reference specific labels or instructions by name (e.g. "the imulq at .L7 can be replaced with...")  
-\- Explain WHY each thing is suboptimal in THIS code  
-\- Do NOT suggest generic advice like "use SIMD", "profile first", or "enable \-O3"  
-\- Do NOT write any assembly or C code — observations only  
-\- Keep each item to 1-2 sentences max  
+Rules:
+\- Reference specific labels or instructions by name (e.g. "the imulq at .L7 can be replaced with...")
+\- Explain WHY each thing is suboptimal in THIS code
+\- Do NOT suggest generic advice like "use SIMD", "profile first", or "enable \-O3"
+\- Do NOT write any assembly or C code — observations only
+\- Keep each item to 1-2 sentences max
 \`\`\`
 
-Example results  
-\`\`\`  
-1\. The \`imulq\` at \`.L7\` can be replaced with \`mulq\` followed by \`addq\` and \`subq\` to  
-   avoid the sign extension and division operations...  
-2\. The \`sarq\` operations in \`.L7\` can be replaced with \`shrq\` to improve performance,  
-   as \`shrq\` is faster on modern CPUs.  
-3\. The \`leal\` instruction in \`.L7\` can be replaced with \`addq\` to simplify the code...  
-4\. The \`xorl\` instructions in \`.L7\` can be removed if they are not necessary...  
-5\. The \`cltd\` instruction in \`.L7\` can be removed if it is not necessary...  
-6\. The \`sarq\` operations in \`.L7\` can be replaced with \`shrq\`...  
-7\. The \`leal\` instruction in \`.L7\` can be replaced with \`addq\`...  
-   ... (points 6–67 are the same 4 suggestions repeated verbatim in a generation loop)  
+Example results
+\`\`\`
+1\. The \`imulq\` at \`.L7\` can be replaced with \`mulq\` followed by \`addq\` and \`subq\` to
+   avoid the sign extension and division operations...
+2\. The \`sarq\` operations in \`.L7\` can be replaced with \`shrq\` to improve performance,
+   as \`shrq\` is faster on modern CPUs.
+3\. The \`leal\` instruction in \`.L7\` can be replaced with \`addq\` to simplify the code...
+4\. The \`xorl\` instructions in \`.L7\` can be removed if they are not necessary...
+5\. The \`cltd\` instruction in \`.L7\` can be removed if it is not necessary...
+6\. The \`sarq\` operations in \`.L7\` can be replaced with \`shrq\`...
+7\. The \`leal\` instruction in \`.L7\` can be replaced with \`addq\`...
+   ... (points 6–67 are the same 4 suggestions repeated verbatim in a generation loop)
 \`\`\`
 
 First, its important to note that almost every suggestion in this is incorrect and would lead to the program breaking.
 
-Analysis:  
+Analysis:
 This is useless because the model invents micro-edits to satisfy the “name an instruction” constraint, and the second stage anchors on that text as if it were ground truth. Additionally, this model is creating pure garbage improvements that are not actually improvements, and are hallucinating things to change that would break the original code
 
 #### Subexperiment C
 
 We add to the prompt that it is allowed to say no improvement. We do this because experiment B showed hallucinations of adding random improvement suggestions (presumably because it was forced to generate some improvement suggestions)
 
-Prompt:  
-\`\`\`  
-    "You are an expert x86-64 assembly programmer and performance engineer. "  
-    "When given assembly code, you analyze it instruction-by-instruction and identify "  
-    "specific inefficiencies by referencing exact labels and instructions. "  
-    "You never give generic advice. You never write code. "  
-    "You output only a numbered list of specific observations about the given assembly. "  
-    "If you cannot find a real, concrete inefficiency, output NOTHING. "  
-    "Do not fabricate or stretch observations just to have something to say."  
+Prompt:
+\`\`\`
+    "You are an expert x86-64 assembly programmer and performance engineer. "
+    "When given assembly code, you analyze it instruction-by-instruction and identify "
+    "specific inefficiencies by referencing exact labels and instructions. "
+    "You never give generic advice. You never write code. "
+    "You output only a numbered list of specific observations about the given assembly. "
+    "If you cannot find a real, concrete inefficiency, output NOTHING. "
+    "Do not fabricate or stretch observations just to have something to say."
 \`\`\`
 
-Results:  
+Results:
 The model just says "NOTHING" for all 1700 training data examples\! The model isn't confident and isn't willing to try anything\!
 
-Analysis:  
+Analysis:
 This is the "Safe Exit" trap. It chose "do no harm" over attempting the complex logic. The fix to experiment B (stop hallucinating) successfully killed the hallucinations — but only by killing all output, so there is no signal left for a downstream SuperCoder editor to condition on. Since the second model once again relies on the thinking model to think of improvements, the entire optimization chain is killed.
 
 #### Experiment takeaways
 
 This clearly did not work. Neither did tuning the prompts; they all caused us to dig into a new hole that didn’t help. We hypothesize a few reasons
 
-1. Models (especially tiny ones) aren’t trained to identify assembly, but are much better at fixing and writing it because of the type of training data  
+1. Models (especially tiny ones) aren’t trained to identify assembly, but are much better at fixing and writing it because of the type of training data
 2. Specific prompts implicitly force the second model to listen to whatever the first model generates, causing more pigeonhole
 
 We wonder if a better approach exists for this \-- can we train an ‘identify’ model using RL or SFT? This is a hard problem because we don’t have an easy way to score outputs and we don’t have a dataset of ‘correct’ or ‘most optimal’ assembly. Perhaps for SFT, we can use a stronger model like Opus to suggest the correct answer? Open question for the future\!
@@ -552,45 +429,45 @@ Each row has c\_code, unoptimized\_assembly, the broken qwen\_assembly, test\_ca
 
 Here’s an example prompt:
 
-\`\`\`  
+\`\`\`
 You are an expert x86-64 assembly programmer. Fix the following incorrectly optimized assembly code for x86-64 Linux (compiled with gcc, linked with \-lm). The assembly must compile with \`gcc \<file\>.s \-o \<file\> \-lm\` and produce correct output for all test cases. Output ONLY the corrected x86-64 assembly code — no explanations, no markdown fences, no additional text.
 
-The error is:  
+The error is:
 \[error message\]
 
-The correct C code is:  
+The correct C code is:
 \[c code\]
 
-The incorrectly optimized assembly is:  
+The incorrectly optimized assembly is:
 \[assembly\]
 
-Generated, correct but still optimized assembly:  
+Generated, correct but still optimized assembly:
 \`\`\`
 
 #### Subexperiment A
 
 We try following the exact same training method as the SuperCoder paper, but with the new data. Same base model, same reward function: 0 if compile fails, 0 if any test fails, else avg\_speedup vs the unoptimized reference.
 
-Results:  
-It did not learn anything at all. Validation loss did not meaningfully decrease, and the critic/rewards/mean stood effectively flat/noisy the entire duration of training.  
+Results:
+It did not learn anything at all. Validation loss did not meaningfully decrease, and the critic/rewards/mean stood effectively flat/noisy the entire duration of training.
 ![][image1]
 
 We believe that this is likely because this reward function stacks 3 big hurdles into 1:
 
-1. Fix the original compile error (likely harder than generation)  
-2. Pass all tests  
-3. Beat GCC timing  
-   
+1. Fix the original compile error (likely harder than generation)
+2. Pass all tests
+3. Beat GCC timing
+
 
 The result of this is extremely sparse rewards and extremely random rewards. The model doesn’t really know what's good and bad. From a cold Qwen init it rarely clears even hurdle 1\. The occasional \`max=1.1\` sample shows it can luck into a fast correct fix, but because the other 15 samples in the batch return exactly \`0\`, the reward is near 0 and drifts the policy into the abyss.
 
-We wonder, what would happen if we pre-trained using SFT to teach the rules of assembly and potentially help this model get denser rewards? 
+We wonder, what would happen if we pre-trained using SFT to teach the rules of assembly and potentially help this model get denser rewards?
 
 #### Subexperiment B
 
 From our first experiment A, we saw that rewards were sparse, probably because the task was too big to solve at once (debugging and speeding up). What if we tried to just reward for debugging, and give partial rewards for improving the debugging state?
 
-The new reward function can be described as the \# test cases passed / len(inputs) 
+The new reward function can be described as the \# test cases passed / len(inputs)
 
 A model that fixes 3/5 test cases now gets 0.6 instead of 0\. We deliberately drop the speedup term — the hypothesis is that learning "produce compilable, correct assembly from a broken one \+ error" and learning "make it faster than \-O3" are two separate skills, and stacking them on one reward is why exp3 stalled. Speedup comes back later as a downstream SuperCoder step.
 
@@ -598,15 +475,15 @@ A model that fixes 3/5 test cases now gets 0.6 instead of 0\. We deliberately dr
 
 Wow, we see the model actually learning to debug\!
 
-![][image3]  
+![][image3]
 We definitely see the rewards increase over time, meaning that this is a successful training run.
 
 #### Results of subexperiments A and B
 
-Let’s see how these actually perform on the validation dataset\!  
-First, we see on the debug-val dataset a definite, 17% increase in compile rate for programs over just using Qwen or SuperCoder\!  
-![][image4]  
-![][image5]  
+Let’s see how these actually perform on the validation dataset\!
+First, we see on the debug-val dataset a definite, 17% increase in compile rate for programs over just using Qwen or SuperCoder\!
+![][image4]
+![][image5]
 We see a massive, nearly **7x** increase in the rate at which the programs pass all test cases\!
 
 This is clear evidence that we trained a model that is repeatedly successful at debugging broken assembly code\!
@@ -621,7 +498,7 @@ After running SuperCoder on the 200 validation dataset, we find 9 errors. Of tho
 
 Why did this not work? We have a few theories:
 
-1.  SuperCoder only made 9 mistakes. It’s hard to properly test if we can improve on just a small dataset of 9 mistakes  
+1.  SuperCoder only made 9 mistakes. It’s hard to properly test if we can improve on just a small dataset of 9 mistakes
 2. The training data might not necessarily represent the real world of SuperCoder. SuperCoder likely makes different mistakes as it learns throughout its training
 
 Another trade-off to mention is the increased computation required to disaggregate into a 2-step agent.
@@ -632,14 +509,14 @@ This leaves us with an interesting idea: What if we layer ‘learning’ of debu
 
 We hypothesize that by teaching a model to debug first, then to optimize, it can learn more and generalize knowledge to have fewer errors and more accuracy.
 
-Using the debug-rl2 model (experiment2, subexperiment B: [Paper](https://docs.google.com/document/d/1qtSCoqjvcFcndEpfFr86BtVgJ65fAG7G46s2F7lFyJc/edit?tab=t.0)), we use that model checkpoint to train SuperCoder *directly on top* of the weights.  
-![][image6]  
-![][image7]   
+Using the debug-rl2 model (experiment2, subexperiment B: [Paper](https://docs.google.com/document/d/1qtSCoqjvcFcndEpfFr86BtVgJ65fAG7G46s2F7lFyJc/edit?tab=t.0)), we use that model checkpoint to train SuperCoder *directly on top* of the weights.
+![][image6]
+![][image7]
 The results are disappointing. While the mean reward on validation is increasing, it’s not necessarily increasing during the training.
 
 Additionally, when compared to the original SuperCoder validation reward, SuperCoder reaches peaks of 1.22, blowing the rewards of our debug-SuperCoder model.
 
-We ran inference benchmarks to compare the models definitively on the validation set of SuperCoder.  
+We ran inference benchmarks to compare the models definitively on the validation set of SuperCoder.
 ![][image8]
 
 Unfortunately, the results prove that our new model is net-worse. We hypothesize that this is because, by training debug first, we teach the model to make tiny, safe edits (without worrying about optimization). Then, when it is trained to optimize (SuperCoder stage), it has to try to forget the prior knowledge. In this case, the base qwen model had no ‘bad prior learning’ and was able to learn faster\!
@@ -654,9 +531,9 @@ The original curriculum learning paper that we were adjacently inspired by expla
 
 ### Prior Art
 
-Superoptimization is the task of transforming a program into a faster one while preserving its input-output behavior, first coined by Henry Massalin in the 1987 `Superoptimizer – A Look at the Smallest Program` paper. As the title suggests, search algorithms for superoptimization fail to scale beyond small, loop-free programs. 
+Superoptimization is the task of transforming a program into a faster one while preserving its input-output behavior, first coined by Henry Massalin in the 1987 `Superoptimizer – A Look at the Smallest Program` paper. As the title suggests, search algorithms for superoptimization fail to scale beyond small, loop-free programs.
 
-An excerpt from the paper:   
+An excerpt from the paper:
 “Even with the probabilistic test, the exhaustive search still grows exponentially with the number of instructions in the generated program. The current version of superoptimizer has generated programs 12 instructions long in several hours running time on a 16MHz 68020 computer. Therefore, the superoptimizer has limited usefulness as a code generator for a compiler.”
 
 The SuperCoder paper, using an LLM, was able to break the wall of only a few line programs by using a non-deterministic heuristic. Still, we notice the paper uses only an average of \~22 lines of C code and \~130 lines of assembly code
@@ -684,7 +561,7 @@ We hypothesize that using lazy edits, ie, prompting the LLM to generate diffs in
 
 ### Introduction to lazy-edits and fast-apply
 
-Lazy edit and fast-apply  
+Lazy edit and fast-apply
 \[to be written up\]
 
 ### Experiment
@@ -693,31 +570,31 @@ First, we need to see, can the tiny 7b Qwen model understand the instructions to
 
 We update the prompt to include the instructions from [morphllm.com](http://morphllm.com) to lazy edit:
 
-\`\`\`  
+\`\`\`
    "Given the following C code and assembly code, your task is to generate highly optimized x86-64 assembly code.
 
-C Code:  
+C Code:
    "\`\`\`c\\n{c\_code}\\n\`\`\`\\n\\n"
 
-Assembly Code:  
-   "\`\`\`assembly\\n{unopt\_asm}\\n\`\`\`\\n\\n"  
-    
-Only output the (lazy edit) optimized assembly code. Do not include any other text. Wrap the assembly code in \`\`\`assembly\`\`\` tags.  
-    
-How to lazy edit:  
+Assembly Code:
+   "\`\`\`assembly\\n{unopt\_asm}\\n\`\`\`\\n\\n"
+
+Only output the (lazy edit) optimized assembly code. Do not include any other text. Wrap the assembly code in \`\`\`assembly\`\`\` tags.
+
+How to lazy edit:
 Use \\"// ... existing code ...\\" to represent unchanged code blocks. Include just enough surrounding context to locate each edit precisely. Example format:
 
-   "// ... existing code ...\\n"  
-   "FIRST\_EDIT\\n"  
-   "// ... existing code ...\\n"  
-   "SECOND\_EDIT\\n"  
+   "// ... existing code ...\\n"
+   "FIRST\_EDIT\\n"
+   "// ... existing code ...\\n"
+   "SECOND\_EDIT\\n"
    "// ... existing code ...\\n"
 
-Rules:  
-"- ALWAYS use \\"// ... existing code ...\\" for unchanged sections (omitting this marker will cause deletions)  
-\- Include minimal context around edits only when needed for disambiguation  
-\- Preserve exact indentation  
-\- For deletions: show context before and after, omit the deleted lines  
+Rules:
+"- ALWAYS use \\"// ... existing code ...\\" for unchanged sections (omitting this marker will cause deletions)
+\- Include minimal context around edits only when needed for disambiguation
+\- Preserve exact indentation
+\- For deletions: show context before and after, omit the deleted lines
 \- Batch multiple edits to the same file in one call
 
  Optimized Assembly Code:
@@ -728,32 +605,32 @@ Then, we run the same benchmarks from the prior art on both SuperCoder and on th
 
 The SuperCoder completely ignored instructions\! But that’s okay \- it probably did that because it was already RL’d to a specific knowledge of understanding and went with what it knew.
 
-On the other hand, the base Qwen model did seem to generate something following the rules\!  
-\`\`\`assembly  
-// ... existing code ...  
-movl	$0, \-16(%rbp)  
-movl	$0, \-12(%rbp)  
-// ... existing code ...  
-movl	\-24(%rbp), %edx  
-movl	\-28(%rbp), %eax  
-cmpl	%eax, %edx  
-jge	.L3  
-movl	\-16(%rbp), %eax  
-addl	$1, %eax  
-movl	%eax, \-16(%rbp)  
-jmp	.L4  
-.L3:  
-movl	\-12(%rbp), %eax  
-addl	$1, %eax  
-movl	%eax, \-12(%rbp)  
-.L4:  
-addl	$1, \-20(%rbp)  
-// ... existing code ...  
-movl	\-12(%rbp), %edx  
-movl	\-16(%rbp), %eax  
-cmpl	%eax, %edx  
-cmovle	%edx, %eax  
-// ... existing code ...  
+On the other hand, the base Qwen model did seem to generate something following the rules\!
+\`\`\`assembly
+// ... existing code ...
+movl	$0, \-16(%rbp)
+movl	$0, \-12(%rbp)
+// ... existing code ...
+movl	\-24(%rbp), %edx
+movl	\-28(%rbp), %eax
+cmpl	%eax, %edx
+jge	.L3
+movl	\-16(%rbp), %eax
+addl	$1, %eax
+movl	%eax, \-16(%rbp)
+jmp	.L4
+.L3:
+movl	\-12(%rbp), %eax
+addl	$1, %eax
+movl	%eax, \-12(%rbp)
+.L4:
+addl	$1, \-20(%rbp)
+// ... existing code ...
+movl	\-12(%rbp), %edx
+movl	\-16(%rbp), %eax
+cmpl	%eax, %edx
+cmovle	%edx, %eax
+// ... existing code ...
 \`\`\`
 
 This is good news \-- it shows that Qwen can follow the instructions, and thus we can proceed with building out our RL pipeline and it should work (no super sparse rewards from failing too or skipping the lazy edits requirement)
@@ -762,10 +639,10 @@ This is good news \-- it shows that Qwen can follow the instructions, and thus w
 
 The goal of this subexperiment is to simply test the thesis: Lazy edits can improve accuracy and performance of the main model. For simplicity, we won’t create a new reward function or a bigger dataset with longer programs for now. We will copy SuperCoder’s methodology but only change the prompt to include lazy-edit instructions.
 
-![][image12]  
+![][image12]
 Validation reward looks great \-- improving on SuperCoder significantly and showing clean improvements each iteration.
 
-Additionally, our metric for tracking Morph Fast Apply usage is positive \-- showing that the model is learning and using the lazy-edits correctly, and not just ignoring those instructions and trying to generate assembly itself. (This might also foreshadow the fact that it learns better with lazy-edits because why else would it keep exploring this path in RL if it was not successful?)  
+Additionally, our metric for tracking Morph Fast Apply usage is positive \-- showing that the model is learning and using the lazy-edits correctly, and not just ignoring those instructions and trying to generate assembly itself. (This might also foreshadow the fact that it learns better with lazy-edits because why else would it keep exploring this path in RL if it was not successful?)
 ![][image13]
 
 # 3 \- Graph neural networks to understand programs better
@@ -784,9 +661,9 @@ Additionally, our metric for tracking Morph Fast Apply usage is positive \-- sho
 
 Evaluation is a big problem How would we verify the correctness of the optimized assembly and benchmark the performance?
 
-- Can formally verify or we could use random input test cases  
-- found formally verification too hard (room for future work) and used random input test cases wasnt comprehensive enough  
-- Luckily competitive coding sites like codeforces have extensive test cases for us to use, so we used this dataset  
+- Can formally verify or we could use random input test cases
+- found formally verification too hard (room for future work) and used random input test cases wasnt comprehensive enough
+- Luckily competitive coding sites like codeforces have extensive test cases for us to use, so we used this dataset
 - Built our own benchmarking suite and open sourced it: \--\> built timing on linux docker containers \+ uses hyperfine to standarize the cache \--\> checks for correctness, static performance metrics, clock cycles, etc \--\> open sourced it: [https://github.com/jwlabs/infra/tree/main/hyperfine](https://github.com/jwlabs/infra/tree/main/hyperfine) \--\> easy to use and integrate into any project
 
 # Future Work
@@ -823,7 +700,7 @@ We wondered, can we create a model like that for schematic design? Can we create
 
 # Dataset creation
 
-We first consider how we would gather the necessary data for training this project. Since we are predicting the user’s next action, we would need to train on data that has prev state-\>next state. We can do this by curating a dataset that follows users' lineages (the list of actions that led them to the next state). 
+We first consider how we would gather the necessary data for training this project. Since we are predicting the user’s next action, we would need to train on data that has prev state-\>next state. We can do this by curating a dataset that follows users' lineages (the list of actions that led them to the next state).
 
 Thinking ahead, we could train the model such that, given an initial state, it would be rewarded for getting closer to a final, complete schematic. But we believe that such an approach might have the model start doing generic things, like placing batteries or random connections that are plausible but not actually correct. Instead, we break it into step-by-step rewards/training: the model will train to match the human development lineage.
 
@@ -833,36 +710,36 @@ We consider collecting this data from real users by watching the action sequence
 
 Instead, we opt for augmenting our data using large language models. We can start by scraping lots of kicad\_sch files from GitHub and verifying the validity/completion/correctness of the file by using kicad\_cli and various basic checks (version, over 5 components, etc). Then, we use LLMs to generate plausible and likely states. Doing a dry run, we quickly run into lots of issues:
 
-First, providing an LLM with an entire schematic file was far too large to fit in the context window.  
-Here’s an example of a schematic file:  
-\`\`\`  
-(kicad\_sch  
-	(version 20231120\)  
-	(generator "eeschema")  
-	(generator\_version "8.0")  
-	(uuid "55df327d-53d0-46f4-9d9b-076c48b5e587")  
-	(paper "A4")  
-	(lib\_symbols  
-		(symbol "2-INPUT AND:SN74LVC1G08DBVR"  
-			(pin\_names  
-				(offset 1.016)  
-			)  
-			(exclude\_from\_sim no)  
-			(in\_bom yes)  
-			(on\_board yes)  
-			(property "Reference" "U"  
-				(at \-12.7 11.16 0\)  
-				(effects  
-					(font  
-						(size 1.27 1.27)  
-					)  
-					(justify left bottom)  
-				)  
-			)  
-			(property "Value" "SN74LVC1G08DBVR"  
-				(at \-12.7 \-14.16 0\)  
-…. (15,000 more lines)  
-\`\`\`  
+First, providing an LLM with an entire schematic file was far too large to fit in the context window.
+Here’s an example of a schematic file:
+\`\`\`
+(kicad\_sch
+	(version 20231120\)
+	(generator "eeschema")
+	(generator\_version "8.0")
+	(uuid "55df327d-53d0-46f4-9d9b-076c48b5e587")
+	(paper "A4")
+	(lib\_symbols
+		(symbol "2-INPUT AND:SN74LVC1G08DBVR"
+			(pin\_names
+				(offset 1.016)
+			)
+			(exclude\_from\_sim no)
+			(in\_bom yes)
+			(on\_board yes)
+			(property "Reference" "U"
+				(at \-12.7 11.16 0\)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left bottom)
+				)
+			)
+			(property "Value" "SN74LVC1G08DBVR"
+				(at \-12.7 \-14.16 0\)
+…. (15,000 more lines)
+\`\`\`
 These files quickly explode in size and have lots of metadata that may not be needed for us to predict the next state, and will not fit in the context window of most LLMs when augmenting our data. Worse, this metadata may confuse the attention of our final predictive model and introduce extra noise, being harmful. The problem only compounds on the output tokens of the augmenting LLM: We need the LLM to recreate the entire schematic at each stage, causing an insane amount of hallucinations.
 
 ### Reducing context size to make generation easier
@@ -871,97 +748,97 @@ We fix this by simplifying the input/output expectation of the LLM.
 
 For input: We create a strip\_kicad file that simplifies the kicad file into just the key parts and connections, reducing the context window 20x or more. We remove wire positionings, labels, metadata, and any unnecessary details. An added benefit to this is we can rewrite the output to be much more LLM-friendly by describing connections in a text-friendly format. Here’s a snipped example:
 
-6,857→119 lines (57.5x reduction\! Probably a \~40x reduction in context window)  
-\`\`\`  
-\--- Stripped KiCad Output \---  
-COMPONENTS:  
-  C14 | 100n | Device:C | uuid=0e7a1b41  
-    pin 1 (\~) \[Passive\] \-\> \+3.3V  
-    pin 2 (\~) \[Passive\] \-\> GND  
-  C15 | 100n | Device:C | uuid=886ba49a  
-    pin 1 (\~) \[Passive\] \-\> \+3.3V  
-    pin 2 (\~) \[Passive\] \-\> GND  
-  C2 | 10u | Device:C | uuid=7e2af52f  
-    pin 1 (\~) \[Passive\] \-\> VBUS  
-    pin 2 (\~) \[Passive\] \-\> GND  
-  ….. 95 lines  
-NETS:  
-  \+3.3V \[POWER\]: C14.\~(1)\[Passive\], C15.\~(1)\[Passive\], J2.Pin\_4(4)\[Passive\], R7.\~(1)\[Passive\], U1.3V3(P$8)\[BiDi\], U3.VDD(6)\[PowerIn\], U3.VREGIN(7)\[PowerIn\]  
-  DHT11 \[SIGNAL\]: J2.Pin\_3(3)\[Passive\], U1.GPIO4(P$16)\[BiDi\]  
-  GND \[POWER\]: C14.\~(2)\[Passive\], C15.\~(2)\[Passive\], C2.\~(2)\[Passive\], C4.\~(2)\[Passive\], C5.\~(2)\[Passive\], D2.\~(1)\[Passive\], D3.\~(1)\[Passive\], D4.\~(1)\[Passive\], J1.GND(5)\[PowerIn\],   
-…. 11 lines  
+6,857→119 lines (57.5x reduction\! Probably a \~40x reduction in context window)
+\`\`\`
+\--- Stripped KiCad Output \---
+COMPONENTS:
+  C14 | 100n | Device:C | uuid=0e7a1b41
+    pin 1 (\~) \[Passive\] \-\> \+3.3V
+    pin 2 (\~) \[Passive\] \-\> GND
+  C15 | 100n | Device:C | uuid=886ba49a
+    pin 1 (\~) \[Passive\] \-\> \+3.3V
+    pin 2 (\~) \[Passive\] \-\> GND
+  C2 | 10u | Device:C | uuid=7e2af52f
+    pin 1 (\~) \[Passive\] \-\> VBUS
+    pin 2 (\~) \[Passive\] \-\> GND
+  ….. 95 lines
+NETS:
+  \+3.3V \[POWER\]: C14.\~(1)\[Passive\], C15.\~(1)\[Passive\], J2.Pin\_4(4)\[Passive\], R7.\~(1)\[Passive\], U1.3V3(P$8)\[BiDi\], U3.VDD(6)\[PowerIn\], U3.VREGIN(7)\[PowerIn\]
+  DHT11 \[SIGNAL\]: J2.Pin\_3(3)\[Passive\], U1.GPIO4(P$16)\[BiDi\]
+  GND \[POWER\]: C14.\~(2)\[Passive\], C15.\~(2)\[Passive\], C2.\~(2)\[Passive\], C4.\~(2)\[Passive\], C5.\~(2)\[Passive\], D2.\~(1)\[Passive\], D3.\~(1)\[Passive\], D4.\~(1)\[Passive\], J1.GND(5)\[PowerIn\],
+…. 11 lines
 \`\`\`
 
 For output, instead of asking the LLM to generate entire schematic states at each step, we ask it to generate a sequence of user actions. Since we have the original file, we can reconstruct it ourselves by matching the sequence and the full file. We’ll recreate the full schematic file from each step of the lineage.
 
-This somewhat works\! Given a prompt to Gemini 3.1 Pro preview:  
-\`\`\`  
+This somewhat works\! Given a prompt to Gemini 3.1 Pro preview:
+\`\`\`
 Create a complete, human-like schematic construction lineage from the final reduced schematic.
 
 Output only ADD, CONNECT, and NO\_CONNECT actions inside one \`\`\` code block. No prose.
 
 Use UUIDs only. Do not use refs like R25 or U3. Do not invent UUIDs.
 
-Syntax:  
+Syntax:
 ADD uuid=\<component\_uuid\>
 
-CONNECT uuid=\<component\_uuid\>:\<pin\_id\> NET \<net\_name\>  
+CONNECT uuid=\<component\_uuid\>:\<pin\_id\> NET \<net\_name\>
 CONNECT uuid=\<component\_uuid\>:\<pin\_id\> uuid=\<component\_uuid\>:\<pin\_id\> ... NET \<net\_name\>
 
-NO\_CONNECT uuid=\<component\_uuid\>:\<pin\_id\>  
+NO\_CONNECT uuid=\<component\_uuid\>:\<pin\_id\>
 NO\_CONNECT uuid=\<component\_uuid\>:\<pin\_id\> uuid=\<component\_uuid\>:\<pin\_id\> ...
 
-Rules:  
-\- Every component must be ADDed exactly once.  
-\- Every connected pin must be CONNECTed exactly once to its exact final net.  
-\- Every NO\_CONNECT pin must be included.  
-\- Omit UNCONNECTED pins.  
-\- Every CONNECT line must contain the NET sentinel before the net name.  
-\- Do not output partial lines, comments, ellipses, headings, or markdown other than the one code block.  
-\- You may batch multiple CONNECTs on one line only when they share the same action/net.  
-\- ADD one component per line.  
+Rules:
+\- Every component must be ADDed exactly once.
+\- Every connected pin must be CONNECTed exactly once to its exact final net.
+\- Every NO\_CONNECT pin must be included.
+\- Omit UNCONNECTED pins.
+\- Every CONNECT line must contain the NET sentinel before the net name.
+\- Do not output partial lines, comments, ellipses, headings, or markdown other than the one code block.
+\- You may batch multiple CONNECTs on one line only when they share the same action/net.
+\- ADD one component per line.
 \- Make the order human-like by grouping functional blocks. Within each block, humans usually add a small set of parts and connect them before moving on.
 
-Examples:  
-ADD uuid=d48a925e  
-CONNECT uuid=d48a925e:1 uuid=5d7f1129:A6 uuid=5d7f1129:B6 NET USB\_D+  
+Examples:
+ADD uuid=d48a925e
+CONNECT uuid=d48a925e:1 uuid=5d7f1129:A6 uuid=5d7f1129:B6 NET USB\_D+
 NO\_CONNECT uuid=316fc54f:6 uuid=316fc54f:8 uuid=316fc54f:9
 
-Final reduced schematic:  
+Final reduced schematic:
 \<SCHEMATIC\_HERE\>
 
-Generated, accurate, human-likely construction lineage:  
+Generated, accurate, human-likely construction lineage:
 \`\`\`
 
-It creates something like:  
-\`\`\`  
-ADD uuid=b1b0c15e  
-CONNECT uuid=b1b0c15e:6 uuid=b1b0c15e:7 NET \+3.3V  
-CONNECT uuid=b1b0c15e:29 uuid=b1b0c15e:3 NET GND  
-NO\_CONNECT uuid=b1b0c15e:1 uuid=b1b0c15e:12 uuid=b1b0c15e:13 uuid=b1b0c15e:14 uuid=b1b0c15e:15 uuid=b1b0c15e:16 uuid=b1b0c15e:17 uuid=b1b0c15e:18 uuid=b1b0c15e:19 uuid=b1b0c15e:2 uuid=b1b0c15e:20 uuid=b1b0c15e:21 uuid=b1b0c15e:22 uuid=b1b0c15e:23 uuid=b1b0c15e:24 uuid=b1b0c15e:27 uuid=b1b0c15e:28  
-ADD uuid=4db25211  
-CONNECT uuid=4db25211:P$8 NET \+3.3V  
-CONNECT uuid=4db25211:P$16 NET DHT11  
-CONNECT uuid=4db25211:P$1 NET GND  
-CONNECT uuid=4db25211:P$6 NET GPIO0  
-CONNECT uuid=4db25211:P$2 uuid=b1b0c15e:25 NET RXD  
-CONNECT uuid=4db25211:P$3 uuid=b1b0c15e:26 NET TXD  
-CONNECT uuid=4db25211:P$9 NET VBUS  
-NO\_CONNECT uuid=4db25211:P$10 uuid=4db25211:P$11 uuid=4db25211:P$12 uuid=4db25211:P$13 uuid=4db25211:P$14 uuid=4db25211:P$15 uuid=4db25211:P$4 uuid=4db25211:P$5 uuid=4db25211:P$7  
-ADD uuid=0e7a1b41  
-CONNECT uuid=0e7a1b41:1 NET \+3.3V  
-CONNECT uuid=0e7a1b41:2 NET GND  
-ADD uuid=886ba49a  
-CONNECT uuid=886ba49a:1 NET \+3.3V  
-CONNECT uuid=886ba49a:2 NET GND  
-ADD uuid=7e2af52f  
-….  
+It creates something like:
+\`\`\`
+ADD uuid=b1b0c15e
+CONNECT uuid=b1b0c15e:6 uuid=b1b0c15e:7 NET \+3.3V
+CONNECT uuid=b1b0c15e:29 uuid=b1b0c15e:3 NET GND
+NO\_CONNECT uuid=b1b0c15e:1 uuid=b1b0c15e:12 uuid=b1b0c15e:13 uuid=b1b0c15e:14 uuid=b1b0c15e:15 uuid=b1b0c15e:16 uuid=b1b0c15e:17 uuid=b1b0c15e:18 uuid=b1b0c15e:19 uuid=b1b0c15e:2 uuid=b1b0c15e:20 uuid=b1b0c15e:21 uuid=b1b0c15e:22 uuid=b1b0c15e:23 uuid=b1b0c15e:24 uuid=b1b0c15e:27 uuid=b1b0c15e:28
+ADD uuid=4db25211
+CONNECT uuid=4db25211:P$8 NET \+3.3V
+CONNECT uuid=4db25211:P$16 NET DHT11
+CONNECT uuid=4db25211:P$1 NET GND
+CONNECT uuid=4db25211:P$6 NET GPIO0
+CONNECT uuid=4db25211:P$2 uuid=b1b0c15e:25 NET RXD
+CONNECT uuid=4db25211:P$3 uuid=b1b0c15e:26 NET TXD
+CONNECT uuid=4db25211:P$9 NET VBUS
+NO\_CONNECT uuid=4db25211:P$10 uuid=4db25211:P$11 uuid=4db25211:P$12 uuid=4db25211:P$13 uuid=4db25211:P$14 uuid=4db25211:P$15 uuid=4db25211:P$4 uuid=4db25211:P$5 uuid=4db25211:P$7
+ADD uuid=0e7a1b41
+CONNECT uuid=0e7a1b41:1 NET \+3.3V
+CONNECT uuid=0e7a1b41:2 NET GND
+ADD uuid=886ba49a
+CONNECT uuid=886ba49a:1 NET \+3.3V
+CONNECT uuid=886ba49a:2 NET GND
+ADD uuid=7e2af52f
+….
 \`\`\`
 
 Which is mostly valid\! But, there is a few issues.
 
-1. Hallucinations \- the LLM is still prone to missing connections, creating invalid schematics, and forgetting syntax.  
-2. Cost \- we are roughly paying 20 cents per call to gemini api \-- over 10,000 examples cost will add up.  
+1. Hallucinations \- the LLM is still prone to missing connections, creating invalid schematics, and forgetting syntax.
+2. Cost \- we are roughly paying 20 cents per call to gemini api \-- over 10,000 examples cost will add up.
 3. Does not cover all permutations \-- multiple different routes exist to create the same final schematic, and many are valid/likely human paths to do so. By calling an LLM to generate a human path, it only creates 1 path, which forces the model to memorize an order that may change between training examples with no clear reason, confusing and a lack of generalization.
 
 ### Generating lineages in a “smarter” way: constrained permutations
@@ -974,117 +851,117 @@ The second approach is creating the lineage entirely deterministically. By start
 
 Finally, we decided on a middle ground:
 
-1. Create a deterministic, guaranteed to be correct lineage given a final GitHub kicad\_sch file (no LLM to generate a lineage)  
-2. Use an LLM to determine human-like block orderings, and what connections/items are flexible/fixed, and what actions should be grouped as once  
+1. Create a deterministic, guaranteed to be correct lineage given a final GitHub kicad\_sch file (no LLM to generate a lineage)
+2. Use an LLM to determine human-like block orderings, and what connections/items are flexible/fixed, and what actions should be grouped as once
 3. Use the LLM information and the deterministic lineage to generate lots of valid permutations, covering many training examples that are likely to be human
 
 We need to think of a way to use LLMs to create not hard-coded exact paths, but rather something like a dependency graph that still looks like human orderings, but also deals with batches of human edits, and also blocks by both dependencies but human probability. Let’s think more about step 2, using the LLM and what that looks like.
 
-Thought process 1:  
-Humans likely design schematics in functional blocks: designing the functional blocks. Within each block, they do certain actions in groups, ie, connect all pins from x to y. These blocks can have multiple orders, and so can each group. 
+Thought process 1:
+Humans likely design schematics in functional blocks: designing the functional blocks. Within each block, they do certain actions in groups, ie, connect all pins from x to y. These blocks can have multiple orders, and so can each group.
 
 There is a tricky balance between permutating all possibilities and keeping only the human-likely groupings. 5 blocks with 4 flexible groups is 5\! \* (4\!)^5 \= \~840M training, which many of are *likely* not human-traversals\!
 
 Step 1: Generate the functional blocks
 
-- LLM “err on side of putting things as fixed. anything a human would highly likely do in an order, fix it. If smth is genuinely up to user preference and can be done either way 50-50,, make it a flexible block. Also make sure u are keeping track of dependencies’  
-- The blocks are like human chunks of workTier 1: The Macro-Block (Functional Units)  
+- LLM “err on side of putting things as fixed. anything a human would highly likely do in an order, fix it. If smth is genuinely up to user preference and can be done either way 50-50,, make it a flexible block. Also make sure u are keeping track of dependencies’
+- The blocks are like human chunks of workTier 1: The Macro-Block (Functional Units)
 - Humans build modularly. They complete (or mostly complete) one functional block before moving to the next. Examples: Power Supply, Microcontroller Core, USB-C Interface, Sensor Array. Batching Rule: High-level isolation. You should rarely mix actions from different macro-blocks unless they are the global nets (like hooking up the main power rail) linking them together.
 
 Ofc some of the permutations might be broken bc of ordering, but we can just discard them bc we have so many anyway.
 
-We notice that hte lineage generated earlier is too verbose and confusing  
-d=d14efac8:A2 NET GND  
-CONNECT uuid=d14efac8:A1 NET net\_2  
-CONNECT uuid=d14efac8:11 NET net\_5  
-CONNECT uuid=d14efac8:14 NET net\_6  
-ADD uuid=c870e3bf  
-CONNECT uuid=c870e3bf:1 NET GND  
-CONNECT uuid=c870e3bf:2 NET net\_27  
-ADD uuid=4a236151  
-CONNECT uuid=4a236151:1 NET GND  
-CONNECT uuid=4a236151:2 NET net\_18  
-ADD uuid=6e7352a5  
-CONNECT uuid=6e7352a5:2 NET GND  
-CONNECT uuid=6e7352a5:1 NET net\_1  
+We notice that hte lineage generated earlier is too verbose and confusing
+d=d14efac8:A2 NET GND
+CONNECT uuid=d14efac8:A1 NET net\_2
+CONNECT uuid=d14efac8:11 NET net\_5
+CONNECT uuid=d14efac8:14 NET net\_6
+ADD uuid=c870e3bf
+CONNECT uuid=c870e3bf:1 NET GND
+CONNECT uuid=c870e3bf:2 NET net\_27
+ADD uuid=4a236151
+CONNECT uuid=4a236151:1 NET GND
+CONNECT uuid=4a236151:2 NET net\_18
+ADD uuid=6e7352a5
+CONNECT uuid=6e7352a5:2 NET GND
+CONNECT uuid=6e7352a5:1 NET net\_1
 ADD uuid=dee90173
 
-No knowledge what each uuid part actually looks like and its too confusing  
-Instead lets make it smth the LLM can easily reference with line numbers and actual part names  
+No knowledge what each uuid part actually looks like and its too confusing
+Instead lets make it smth the LLM can easily reference with line numbers and actual part names
 We resolve the refs, remove library path (noise), and bring in the net names as well to give more context for the LLM.
 
-New:  
-\--- Generated Lineage \---  
-01 ADD U1 | ATmega328-P  
-02 CONNECT U1:22(GND) U1:8(GND) NET GND  
-03 ADD U2 | LM7805\_TO220  
-04 CONNECT U2:2(GND) NET GND  
-05 CONNECT U2:1(VI) NET VI  
-06 CONNECT U1:20(AVCC) U1:7(VCC) U2:3(VO) NET AVCC  
-07 ADD Y1 | 16MHz Crystal  
-08 CONNECT U1:9(XTAL1/PB6) Y1:2 NET XTAL1/PB6  
-09 CONNECT U1:10(XTAL2/PB7) Y1:1 NET XTAL2/PB7  
-10 ADD C1 | 22p  
-11 CONNECT C1:2(\~) NET GND  
-12 CONNECT C1:1(\~) NET XTAL1/PB6  
-13 ADD C2 | 22p  
-14 CONNECT C2:1(\~) NET GND  
-15 CONNECT C2:2(\~) NET XTAL2/PB7  
-16 ADD C3 | 100n  
-17 CONNECT C3:1(\~) NET GND  
-18 CONNECT C3:2(\~) NET AVCC  
-19 ADD R1 | 1K  
-20 CONNECT R1:2(\~) NET net\_20  
-21 CONNECT R1:1(\~) U1:3(PD1) NET PD1  
-22 ADD R2 | 2K  
-23 CONNECT R2:2(\~) NET GND  
-24 CONNECT R2:1(\~) NET net\_20  
-25 ADD R3 | 10K  
-26 CONNECT R3:1(\~) U1:1(\~{RESET}/PC6) NET net\_1  
-27 CONNECT R3:2(\~) NET AVCC  
-28 ADD R4 | 330R  
-29 CONNECT R4:1(\~) U1:13(PD7) NET PD7  
-30 CONNECT R4:2(\~) NET A  
-31 ADD R5 | 10K  
-32 CONNECT R5:1(\~) NET GND  
-33 CONNECT R5:2(\~) U1:4(PD2) NET PD2  
-34 ADD R6 | 330R  
-35 CONNECT R6:1(\~) NET A  
-36 CONNECT R6:2(\~) NET AVCC  
-37 ADD J1 | Conn\_01x04  
-38 CONNECT J1:3(Pin\_3) NET GND  
-39 CONNECT J1:2(Pin\_2) U1:2(PD0) NET PD0  
-40 CONNECT J1:1(Pin\_1) NET net\_20  
-41 CONNECT J1:4(Pin\_4) NET AVCC  
-42 ADD J2 | Conn\_01x02  
-43 CONNECT J2:1(Pin\_1) NET GND  
-44 CONNECT J2:2(Pin\_2) NET net\_6  
-45 ADD J3 | Conn\_01x02  
-46 CONNECT J3:1(Pin\_1) NET GND  
-47 CONNECT J3:2(Pin\_2) NET VI  
-48 ADD K1 | JQC-3FF-005-1Z  
-49 CONNECT K1:A2(\~) NET GND  
-50 CONNECT K1:A1(\~) NET PD7  
-51 CONNECT K1:11(\~) NET AVCC  
-52 CONNECT K1:14(\~) NET net\_6  
-53 ADD D1 | LED  
-54 CONNECT D1:1(K) NET GND  
-55 CONNECT D1:2(A) NET A  
-56 ADD D2 | LED  
-57 CONNECT D2:1(K) NET GND  
-58 CONNECT D2:2(A) NET A  
-59 ADD SW1 | SW\_Push  
-60 CONNECT SW1:2 NET GND  
-61 CONNECT SW1:1 NET net\_1  
-62 ADD SW2 | SW\_Push  
-63 CONNECT SW2:1 NET PD2  
-64 CONNECT SW2:2 NET AVCC  
+New:
+\--- Generated Lineage \---
+01 ADD U1 | ATmega328-P
+02 CONNECT U1:22(GND) U1:8(GND) NET GND
+03 ADD U2 | LM7805\_TO220
+04 CONNECT U2:2(GND) NET GND
+05 CONNECT U2:1(VI) NET VI
+06 CONNECT U1:20(AVCC) U1:7(VCC) U2:3(VO) NET AVCC
+07 ADD Y1 | 16MHz Crystal
+08 CONNECT U1:9(XTAL1/PB6) Y1:2 NET XTAL1/PB6
+09 CONNECT U1:10(XTAL2/PB7) Y1:1 NET XTAL2/PB7
+10 ADD C1 | 22p
+11 CONNECT C1:2(\~) NET GND
+12 CONNECT C1:1(\~) NET XTAL1/PB6
+13 ADD C2 | 22p
+14 CONNECT C2:1(\~) NET GND
+15 CONNECT C2:2(\~) NET XTAL2/PB7
+16 ADD C3 | 100n
+17 CONNECT C3:1(\~) NET GND
+18 CONNECT C3:2(\~) NET AVCC
+19 ADD R1 | 1K
+20 CONNECT R1:2(\~) NET net\_20
+21 CONNECT R1:1(\~) U1:3(PD1) NET PD1
+22 ADD R2 | 2K
+23 CONNECT R2:2(\~) NET GND
+24 CONNECT R2:1(\~) NET net\_20
+25 ADD R3 | 10K
+26 CONNECT R3:1(\~) U1:1(\~{RESET}/PC6) NET net\_1
+27 CONNECT R3:2(\~) NET AVCC
+28 ADD R4 | 330R
+29 CONNECT R4:1(\~) U1:13(PD7) NET PD7
+30 CONNECT R4:2(\~) NET A
+31 ADD R5 | 10K
+32 CONNECT R5:1(\~) NET GND
+33 CONNECT R5:2(\~) U1:4(PD2) NET PD2
+34 ADD R6 | 330R
+35 CONNECT R6:1(\~) NET A
+36 CONNECT R6:2(\~) NET AVCC
+37 ADD J1 | Conn\_01x04
+38 CONNECT J1:3(Pin\_3) NET GND
+39 CONNECT J1:2(Pin\_2) U1:2(PD0) NET PD0
+40 CONNECT J1:1(Pin\_1) NET net\_20
+41 CONNECT J1:4(Pin\_4) NET AVCC
+42 ADD J2 | Conn\_01x02
+43 CONNECT J2:1(Pin\_1) NET GND
+44 CONNECT J2:2(Pin\_2) NET net\_6
+45 ADD J3 | Conn\_01x02
+46 CONNECT J3:1(Pin\_1) NET GND
+47 CONNECT J3:2(Pin\_2) NET VI
+48 ADD K1 | JQC-3FF-005-1Z
+49 CONNECT K1:A2(\~) NET GND
+50 CONNECT K1:A1(\~) NET PD7
+51 CONNECT K1:11(\~) NET AVCC
+52 CONNECT K1:14(\~) NET net\_6
+53 ADD D1 | LED
+54 CONNECT D1:1(K) NET GND
+55 CONNECT D1:2(A) NET A
+56 ADD D2 | LED
+57 CONNECT D2:1(K) NET GND
+58 CONNECT D2:2(A) NET A
+59 ADD SW1 | SW\_Push
+60 CONNECT SW1:2 NET GND
+61 CONNECT SW1:1 NET net\_1
+62 ADD SW2 | SW\_Push
+63 CONNECT SW2:1 NET PD2
+64 CONNECT SW2:2 NET AVCC
 \--- End Generated Lineage \---
 
 Ideal output:
 
-FIXED Group 1: Main parts  
-1 FIXED  
+FIXED Group 1: Main parts
+1 FIXED
 1,4,29,53 FIXED
 
 The issue here is that prompting for blocks then ordering those, then prompting for groups within blocks is too complex..
@@ -1095,266 +972,266 @@ then, we ask llm to a) create groups and b) tell me if its flexible fixed and wh
 
 we take it, then we create perms (of group orderings), trim off those perms that are broken
 
-LLM adds description so it also self rationalizes internally and potentially stronger more rational output  
+LLM adds description so it also self rationalizes internally and potentially stronger more rational output
 Maybe smth liek this
 
-\`\`\`  
-GROUP 1: Add MCU \+ power pins  
-FIXED   
+\`\`\`
+GROUP 1: Add MCU \+ power pins
+FIXED
 lines: 0001 0002
 
-GROUP 2: Add voltage regulator \+ wire  
-FIXED  
+GROUP 2: Add voltage regulator \+ wire
+FIXED
 lines: 0003 0004 0005 0006
 
-GROUP 3: Crystal \+ load caps   
-DEPENDS ON: 1  
+GROUP 3: Crystal \+ load caps
+DEPENDS ON: 1
 lines: 0007 0008 0009 0010 0011 0012 0013 0014 0015
 
-GROUP 4: Relay driver circuit  
-FLEXIBLE   
+GROUP 4: Relay driver circuit
+FLEXIBLE
 lines: 0028 0029 0030 0048 0049 0050
 
-GROUP 5: Input switches   
-FLEXIBLE   
+GROUP 5: Input switches
+FLEXIBLE
 lines: 0059 0060 0061 0062 0063 0064
 
-Likely orderings:  
-1\. Group 1, group2, group 4, group 5, group 3  
-2\. Group 1, group 2, group 3, group 4, group 5  
-3\. Group 1, group 2, group 4, group 2, group 1  
+Likely orderings:
+1\. Group 1, group2, group 4, group 5, group 3
+2\. Group 1, group 2, group 3, group 4, group 5
+3\. Group 1, group 2, group 4, group 2, group 1
 \`\`\`
 
-Hmm maybe we just 
+Hmm maybe we just
 
-1. Fade groups/blocks  
-2. Fade creating permutations our selves  
-3. We just get llm to create groups and determine what is dependent on what, then create a few highly likely orderings  
+1. Fade groups/blocks
+2. Fade creating permutations our selves
+3. We just get llm to create groups and determine what is dependent on what, then create a few highly likely orderings
 4. We validate it and keep the valid ones and use those
 
 So we need to create a new prompt
 
-\--- LLM Prompt (includes full lineage below prompt text) \---  
-You are given a linneage that a robot took to create a schematic on KiCad. The robot does NOT necessarily match human behavior.  
-Your job is 2 fold:  
-1\. Create human like blocks of work  
- \- Humans build modularly. An electrical engineer will work on one functional block at a time, ie, adding and wiring up a decoupling cap, or adding and wiring up a microcontroller, etc.  
- \- Each block should not be too many actions at once. It should be something that a human would sit down, think, and then do in 1 go all together as one descriable unit of work  
-\- Keep tightly coupled actions together, such as adding a component and wiring its local pins.  
-\- A group should usually be small enough that a human could do it in one focused editing pass.  
-\- Prefer functional chunks over arbitrary line ranges.  
-\- Do not create new schematic actions.  
-\- Do not rewrite schematic actions.  
+\--- LLM Prompt (includes full lineage below prompt text) \---
+You are given a linneage that a robot took to create a schematic on KiCad. The robot does NOT necessarily match human behavior.
+Your job is 2 fold:
+1\. Create human like blocks of work
+ \- Humans build modularly. An electrical engineer will work on one functional block at a time, ie, adding and wiring up a decoupling cap, or adding and wiring up a microcontroller, etc.
+ \- Each block should not be too many actions at once. It should be something that a human would sit down, think, and then do in 1 go all together as one descriable unit of work
+\- Keep tightly coupled actions together, such as adding a component and wiring its local pins.
+\- A group should usually be small enough that a human could do it in one focused editing pass.
+\- Prefer functional chunks over arbitrary line ranges.
+\- Do not create new schematic actions.
+\- Do not rewrite schematic actions.
 \- Only refer to input line numbers.
 
-   
-2\. Create an ordering of blocks  
- \- You need to tell me what a real engineer would most likely do first, second, etc by telling me multiple, highly likely block orderings.  
- \- Each of these orderings must also be VALID. They must all still be valid linneages, ie NO connecting pins before the components are added.  
+
+2\. Create an ordering of blocks
+ \- You need to tell me what a real engineer would most likely do first, second, etc by telling me multiple, highly likely block orderings.
+ \- Each of these orderings must also be VALID. They must all still be valid linneages, ie NO connecting pins before the components are added.
  \- You can give me from 1-5 different orderings.
 
-Output Format and rules  
-    \- return with \`\`\` block for the final answer  
-    \- Include the Group with description, the line \# from the input, and what it depends on.  
-    \- Include the LIKELY ORDERINGS, in order of likelihood, that are both CORRECT and VALID but also most human likely.  
-    \- Reference the line numbers from the input, not anything else. Follow the example format strictly  
+Output Format and rules
+    \- return with \`\`\` block for the final answer
+    \- Include the Group with description, the line \# from the input, and what it depends on.
+    \- Include the LIKELY ORDERINGS, in order of likelihood, that are both CORRECT and VALID but also most human likely.
+    \- Reference the line numbers from the input, not anything else. Follow the example format strictly
     \- Make sure to COVER EVERY SINGLE LINE in the input.
 
-GROUP \<id\>: \<short description\>  
-LINES: \<space-separated input line numbers\>  
+GROUP \<id\>: \<short description\>
+LINES: \<space-separated input line numbers\>
 DEPENDS ON: \<space-separated group ids, or none\>
 
-LIKELY ORDERINGS:  
-1\. \<space-separated group ids\>  
-2\. \<space-separated group ids\>  
+LIKELY ORDERINGS:
+1\. \<space-separated group ids\>
+2\. \<space-separated group ids\>
 3\. \<space-separated group ids\>
 
-Example output:  
-\`\`\`  
-GROUP 1: Add the ATmega328P and establish its ground and power connections.  
-LINES: 01 02  
+Example output:
+\`\`\`
+GROUP 1: Add the ATmega328P and establish its ground and power connections.
+LINES: 01 02
 DEPENDS ON: none
 
-GROUP 2: Add the regulator, connect input/output power, and establish AVCC.  
-LINES: 03 04 05 06  
+GROUP 2: Add the regulator, connect input/output power, and establish AVCC.
+LINES: 03 04 05 06
 DEPENDS ON: 1
 
 .. more groups here in an actual output (3-6)
 
-LIKELY ORDERINGS:  
-1\. 1 2 3 4 6 5  
-2\. 1 2 4 6 3 5  
-3\. 1 2 5 3 4 6  
+LIKELY ORDERINGS:
+1\. 1 2 3 4 6 5
+2\. 1 2 4 6 3 5
+3\. 1 2 5 3 4 6
 \`\`\`
 
 The input linneage:
 
-\`\`\`  
-01 ADD U1 | ATmega328-P  
-02 CONNECT U1:22(GND) U1:8(GND) NET GND  
-03 ADD U2 | LM7805\_TO220  
-04 CONNECT U2:2(GND) NET GND  
-05 CONNECT U2:1(VI) NET VI  
-06 CONNECT U1:20(AVCC) U1:7(VCC) U2:3(VO) NET AVCC  
-07 ADD Y1 | 16MHz Crystal  
-08 CONNECT U1:9(XTAL1/PB6) Y1:2 NET XTAL1/PB6  
-09 CONNECT U1:10(XTAL2/PB7) Y1:1 NET XTAL2/PB7  
-10 ADD C1 | 22p  
-11 CONNECT C1:2(\~) NET GND  
-12 CONNECT C1:1(\~) NET XTAL1/PB6  
-13 ADD C2 | 22p  
-14 CONNECT C2:1(\~) NET GND  
-15 CONNECT C2:2(\~) NET XTAL2/PB7  
-16 ADD C3 | 100n  
-17 CONNECT C3:1(\~) NET GND  
-18 CONNECT C3:2(\~) NET AVCC  
-19 ADD R1 | 1K  
-20 CONNECT R1:2(\~) NET net\_20  
-21 CONNECT R1:1(\~) U1:3(PD1) NET PD1  
-22 ADD R2 | 2K  
-23 CONNECT R2:2(\~) NET GND  
-24 CONNECT R2:1(\~) NET net\_20  
-25 ADD R3 | 10K  
-26 CONNECT R3:1(\~) U1:1(\~{RESET}/PC6) NET net\_1  
-27 CONNECT R3:2(\~) NET AVCC  
-28 ADD R4 | 330R  
-29 CONNECT R4:1(\~) U1:13(PD7) NET PD7  
-30 CONNECT R4:2(\~) NET A  
-31 ADD R5 | 10K  
-32 CONNECT R5:1(\~) NET GND  
-33 CONNECT R5:2(\~) U1:4(PD2) NET PD2  
-34 ADD R6 | 330R  
-35 CONNECT R6:1(\~) NET A  
-36 CONNECT R6:2(\~) NET AVCC  
-37 ADD J1 | Conn\_01x04  
-38 CONNECT J1:3(Pin\_3) NET GND  
-39 CONNECT J1:2(Pin\_2) U1:2(PD0) NET PD0  
-40 CONNECT J1:1(Pin\_1) NET net\_20  
-41 CONNECT J1:4(Pin\_4) NET AVCC  
-42 ADD J2 | Conn\_01x02  
-43 CONNECT J2:1(Pin\_1) NET GND  
-44 CONNECT J2:2(Pin\_2) NET net\_6  
-45 ADD J3 | Conn\_01x02  
-46 CONNECT J3:1(Pin\_1) NET GND  
-47 CONNECT J3:2(Pin\_2) NET VI  
-48 ADD K1 | JQC-3FF-005-1Z  
-49 CONNECT K1:A2(\~) NET GND  
-50 CONNECT K1:A1(\~) NET PD7  
-51 CONNECT K1:11(\~) NET AVCC  
-52 CONNECT K1:14(\~) NET net\_6  
-53 ADD D1 | LED  
-54 CONNECT D1:1(K) NET GND  
-55 CONNECT D1:2(A) NET A  
-56 ADD D2 | LED  
-57 CONNECT D2:1(K) NET GND  
-58 CONNECT D2:2(A) NET A  
-59 ADD SW1 | SW\_Push  
-60 CONNECT SW1:2 NET GND  
-61 CONNECT SW1:1 NET net\_1  
-62 ADD SW2 | SW\_Push  
-63 CONNECT SW2:1 NET PD2  
-64 CONNECT SW2:2 NET AVCC  
-\`\`\`  
+\`\`\`
+01 ADD U1 | ATmega328-P
+02 CONNECT U1:22(GND) U1:8(GND) NET GND
+03 ADD U2 | LM7805\_TO220
+04 CONNECT U2:2(GND) NET GND
+05 CONNECT U2:1(VI) NET VI
+06 CONNECT U1:20(AVCC) U1:7(VCC) U2:3(VO) NET AVCC
+07 ADD Y1 | 16MHz Crystal
+08 CONNECT U1:9(XTAL1/PB6) Y1:2 NET XTAL1/PB6
+09 CONNECT U1:10(XTAL2/PB7) Y1:1 NET XTAL2/PB7
+10 ADD C1 | 22p
+11 CONNECT C1:2(\~) NET GND
+12 CONNECT C1:1(\~) NET XTAL1/PB6
+13 ADD C2 | 22p
+14 CONNECT C2:1(\~) NET GND
+15 CONNECT C2:2(\~) NET XTAL2/PB7
+16 ADD C3 | 100n
+17 CONNECT C3:1(\~) NET GND
+18 CONNECT C3:2(\~) NET AVCC
+19 ADD R1 | 1K
+20 CONNECT R1:2(\~) NET net\_20
+21 CONNECT R1:1(\~) U1:3(PD1) NET PD1
+22 ADD R2 | 2K
+23 CONNECT R2:2(\~) NET GND
+24 CONNECT R2:1(\~) NET net\_20
+25 ADD R3 | 10K
+26 CONNECT R3:1(\~) U1:1(\~{RESET}/PC6) NET net\_1
+27 CONNECT R3:2(\~) NET AVCC
+28 ADD R4 | 330R
+29 CONNECT R4:1(\~) U1:13(PD7) NET PD7
+30 CONNECT R4:2(\~) NET A
+31 ADD R5 | 10K
+32 CONNECT R5:1(\~) NET GND
+33 CONNECT R5:2(\~) U1:4(PD2) NET PD2
+34 ADD R6 | 330R
+35 CONNECT R6:1(\~) NET A
+36 CONNECT R6:2(\~) NET AVCC
+37 ADD J1 | Conn\_01x04
+38 CONNECT J1:3(Pin\_3) NET GND
+39 CONNECT J1:2(Pin\_2) U1:2(PD0) NET PD0
+40 CONNECT J1:1(Pin\_1) NET net\_20
+41 CONNECT J1:4(Pin\_4) NET AVCC
+42 ADD J2 | Conn\_01x02
+43 CONNECT J2:1(Pin\_1) NET GND
+44 CONNECT J2:2(Pin\_2) NET net\_6
+45 ADD J3 | Conn\_01x02
+46 CONNECT J3:1(Pin\_1) NET GND
+47 CONNECT J3:2(Pin\_2) NET VI
+48 ADD K1 | JQC-3FF-005-1Z
+49 CONNECT K1:A2(\~) NET GND
+50 CONNECT K1:A1(\~) NET PD7
+51 CONNECT K1:11(\~) NET AVCC
+52 CONNECT K1:14(\~) NET net\_6
+53 ADD D1 | LED
+54 CONNECT D1:1(K) NET GND
+55 CONNECT D1:2(A) NET A
+56 ADD D2 | LED
+57 CONNECT D2:1(K) NET GND
+58 CONNECT D2:2(A) NET A
+59 ADD SW1 | SW\_Push
+60 CONNECT SW1:2 NET GND
+61 CONNECT SW1:1 NET net\_1
+62 ADD SW2 | SW\_Push
+63 CONNECT SW2:1 NET PD2
+64 CONNECT SW2:2 NET AVCC
+\`\`\`
 \--- End LLM Prompt (includes full lineage below prompt text) \---
 
-\--- LLM Response (attempt 1\) \---  
-\`\`\`  
-GROUP 1: Add the ATmega328P microcontroller and establish its ground connection.  
-LINES: 01 02  
+\--- LLM Response (attempt 1\) \---
+\`\`\`
+GROUP 1: Add the ATmega328P microcontroller and establish its ground connection.
+LINES: 01 02
 DEPENDS ON: none
 
-GROUP 2: Add the LM7805 voltage regulator and connect its power nets to the MCU.  
-LINES: 03 04 05 06  
+GROUP 2: Add the LM7805 voltage regulator and connect its power nets to the MCU.
+LINES: 03 04 05 06
 DEPENDS ON: 1
 
-GROUP 3: Add the 16MHz crystal oscillator and its load capacitors.  
-LINES: 07 08 09 10 11 12 13 14 15  
+GROUP 3: Add the 16MHz crystal oscillator and its load capacitors.
+LINES: 07 08 09 10 11 12 13 14 15
 DEPENDS ON: 1
 
-GROUP 4: Add the decoupling capacitor for the AVCC line.  
-LINES: 16 17 18  
+GROUP 4: Add the decoupling capacitor for the AVCC line.
+LINES: 16 17 18
 DEPENDS ON: none
 
-GROUP 5: Add the UART communication header and its TX logic-level voltage divider.  
-LINES: 19 20 21 22 23 24 37 38 39 40 41  
+GROUP 5: Add the UART communication header and its TX logic-level voltage divider.
+LINES: 19 20 21 22 23 24 37 38 39 40 41
 DEPENDS ON: 1
 
-GROUP 6: Add the MCU reset circuit (pull-up resistor and push button).  
-LINES: 25 26 27 59 60 61  
+GROUP 6: Add the MCU reset circuit (pull-up resistor and push button).
+LINES: 25 26 27 59 60 61
 DEPENDS ON: 1
 
-GROUP 7: Add the LED indicators and their current limiting resistors.  
-LINES: 28 29 30 34 35 36 53 54 55 56 57 58  
+GROUP 7: Add the LED indicators and their current limiting resistors.
+LINES: 28 29 30 34 35 36 53 54 55 56 57 58
 DEPENDS ON: 1
 
-GROUP 8: Add the user input push button and its pull-down resistor.  
-LINES: 31 32 33 62 63 64  
+GROUP 8: Add the user input push button and its pull-down resistor.
+LINES: 31 32 33 62 63 64
 DEPENDS ON: 1
 
-GROUP 9: Add the relay circuit and its output terminal block.  
-LINES: 42 43 44 48 49 50 51 52  
+GROUP 9: Add the relay circuit and its output terminal block.
+LINES: 42 43 44 48 49 50 51 52
 DEPENDS ON: none
 
-GROUP 10: Add the main power input terminal block.  
-LINES: 45 46 47  
+GROUP 10: Add the main power input terminal block.
+LINES: 45 46 47
 DEPENDS ON: none
 
-LIKELY ORDERINGS:  
-1\. 1 10 2 4 3 6 5 8 7 9  
-2\. 10 1 2 4 3 6 7 9 8 5  
-3\. 1 3 6 2 4 10 8 7 9 5  
+LIKELY ORDERINGS:
+1\. 1 10 2 4 3 6 5 8 7 9
+2\. 10 1 2 4 3 6 7 9 8 5
+3\. 1 3 6 2 4 10 8 7 9 5
 \`\`\`
 
 ### Creating usable training data
 
-worry  
+worry
 \- IF LLM approach we need to make text not be differnet labels each time, ie net names need to be consistnat no? and need a way to consistnaize it
 
 \- we need to keep the blocks in the output linneages format
 
 We need both for GNN approach and for the normal approach
 
-We also need to add in UUID into this asw 
+We also need to add in UUID into this asw
 
 Final prediction needs to be like:
 
-BATCH:  
-Add uuid x  
+BATCH:
+Add uuid x
 attach wire from UUID x to UUID y
 
 So we need to keep batches and uuids in our training set
 
 Realize order within a output (of a batch, like what item the llm first outputs) doesnt lry matter cuz they all will be shown as one in a ghost preview.
 
-\---------  
+\---------
 We created LLM data by each input/output pair can be created per line of the lineage
 
-Issue \#1:  
- \- we have the first prediction is off an empty field. This means it has nothing ot base its prediction off  
+Issue \#1:
+ \- we have the first prediction is off an empty field. This means it has nothing ot base its prediction off
 Solution: we just remove the first
 
 Issue \#2:
 
-- me input mapping to different outputs.  
-- Examples:  
-- {"input": "", "output": "ADD U3 ..."}  
-- {"input": "", "output": "ADD C14 ..."}  
--   
-- and:  
-- input \= ADD U3 ...  
-- output \= ADD U1 ...  
--   
-- but elsewhere:  
-- input \= ADD U3 ...  
-- output \= ADD J1 ...  
--   
+- me input mapping to different outputs.
+- Examples:
+- {"input": "", "output": "ADD U3 ..."}
+- {"input": "", "output": "ADD C14 ..."}
+-
+- and:
+- input \= ADD U3 ...
+- output \= ADD U1 ...
+-
+- but elsewhere:
+- input \= ADD U3 ...
+- output \= ADD J1 ...
+-
 - For SFT, that is contradictory supervision. A big model can maybe learn “many things are valid next,” but a tiny model will get mushy. Either keep one ordering per schematic, or add something like:
 
 No solution
 
-Issue \#3  
-UUIDs cloud the LLM model  
- my worry is if i remove UUIDs i cannot do the inference on the frontend UI to actually do connections. cuz how will it know 
+Issue \#3
+UUIDs cloud the LLM model
+ my worry is if i remove UUIDs i cannot do the inference on the frontend UI to actually do connections. cuz how will it know
 
 do we do this?
 
@@ -1370,7 +1247,7 @@ R\_RST\_PULLUP
 
 C\_3V3\_DEC\_1
 
-in that case we can remove UUIDs from the training data right cuz we can always back match it 
+in that case we can remove UUIDs from the training data right cuz we can always back match it
 
 codex://threads/019e3c47-aaf0-7ca1-8126-026897d3cd4e
 
@@ -1378,31 +1255,31 @@ We can basically remove UUIds
 
 # Training
 
-\-- question: how to reward not even if took a path that is plausible? Multiple correct answers?  
+\-- question: how to reward not even if took a path that is plausible? Multiple correct answers?
 We use
 
-Consider the LLM vs GNN model  
-GAT / only subgraph with distance 3 of touched  
-→ also what is our node/edge structure looking like: holding how recently touched asw  
+Consider the LLM vs GNN model
+GAT / only subgraph with distance 3 of touched
+→ also what is our node/edge structure looking like: holding how recently touched asw
 We can have a score on each node OR edge (since you couldve last done a item or connection) of how recently edited. We can also have score on last selected item as is\_selected \= true on the node
 
 Size generation issue
 
-LLM density / vram issue  
-Context window  
-Inferenc epseed  
-Training cost  
-Time till first token  
-Low latency  
+LLM density / vram issue
+Context window
+Inferenc epseed
+Training cost
+Time till first token
+Low latency
 Try to run on device
 
 Last 3 actions touched could be useful
 
-Interesting thought here   
-[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals](https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals)  
-[https://cursor.com/blog/tab-rl](https://cursor.com/blog/tab-rl)  
-Cursor basically uses a 2nd model to predict if it will be accepted or not   
-And a first model to predict users next move  
+Interesting thought here
+[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals](https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals)
+[https://cursor.com/blog/tab-rl](https://cursor.com/blog/tab-rl)
+Cursor basically uses a 2nd model to predict if it will be accepted or not
+And a first model to predict users next move
 Since its hard to train 1st model to NOT predict sometimes
 
 \--\> gnn might solve issue of text representing schematic poorly, \+ how physical ordering doesnt matter of items, only connections matter
@@ -1415,16 +1292,16 @@ Faster inference, more accurate since problem is basically graph rpoblem
 
 If we went LLM route:
 
-1. Have high KV cache since the current state will be repeated or 90% similar each time  
-2. We can have speculative decoding like how morph does it using OG code as predictive if we use LLM since most of the map will remain the same (this is LLM with regen full map case only)  
+1. Have high KV cache since the current state will be repeated or 90% similar each time
+2. We can have speculative decoding like how morph does it using OG code as predictive if we use LLM since most of the map will remain the same (this is LLM with regen full map case only)
 3. Can we get tiny enough model to run on device? Or run extremely fast?
 
-Caching only do inference when new state  
+Caching only do inference when new state
 Only generate diffs
 
 Speculative speculative chain on next thing as soon as high likely accept suggestion shown
 
-Online RL  
+Online RL
 Out model just predicts next action, we algoritmicslaly figure out UI / best place to place it
 
 Need to be blazingly fast (\<100ms latency)
@@ -1433,24 +1310,24 @@ Need to be blazingly fast (\<100ms latency)
 
 So we are currently doing this:
 
-1. Taking complete kicad\_sch files, stripping away everything non-essential (labels, metadata, x,y coords)  
+1. Taking complete kicad\_sch files, stripping away everything non-essential (labels, metadata, x,y coords)
 2. Generating a deterministic lineage, ie:
 
-   ADD component x  
-   CONNECT pin x to pin y  
-   ADD ..  
-   Etc etc  
-   
+   ADD component x
+   CONNECT pin x to pin y
+   ADD ..
+   Etc etc
+
 
 Thinking of getting an LLM to gen human-likely lineage ordering of the above (what can be reordered safely, what is likely to come before something else, how much to batch certain stuff, what stuff goes together)
 
-Then we can permutate all the elements that can be reordered to cover all training examples / generalize? Or should we do like different loss function or RL in which it gets reward for all correct answers? Effect on the final output being ‘human-like’? 
+Then we can permutate all the elements that can be reordered to cover all training examples / generalize? Or should we do like different loss function or RL in which it gets reward for all correct answers? Effect on the final output being ‘human-like’?
 
 The issue is multiple human-likely lineages exist and are valid so not sure how to account for all that.
 
 Another question is the actual model \-- thinking of GNN because the graph can model the connections and elements on a schematic perfectly compared to LLM (line-by-line generalization issue). Then we can do smth like give more weight to the edges/nodes that are more recently touched/actioned by user.
 
-# Ideas 
+# Ideas
 
 \-- train github commits to help w augmenting progress
 
@@ -1987,11 +1864,11 @@ The result speedup is shown below:
 
 # Related Work
 
-BTB is an project at the intersection of predictive resource managemment and cache-aware routing. 
+BTB is an project at the intersection of predictive resource managemment and cache-aware routing.
 
-On the predictive side, [PreServe](https://arxiv.org/abs/2504.03702) proposes a load anticipator that forecasts incoming request load and maintains a KV cache memory usage projection map to guide proactive scaling. Although similar to BTB, this operates at cluster scale over longer timescales rather than per-burst replication over seconds. [Cachewise](https://arxiv.org/abs/2606.16824) predicts KV block reuse times for coding agents from the tool-call metadata and then evicts less aggressively when reuse is more likely. [Learned Prefix Caching](https://openreview.net/pdf?id=Vj48eXaQDM) trains a small model on prompt content to predict whether a conversation will continue and uses that to decide what to evict. These papers show that predictive signals help, but they do not address the same prefix burst case with RDMA replication. 
+On the predictive side, [PreServe](https://arxiv.org/abs/2504.03702) proposes a load anticipator that forecasts incoming request load and maintains a KV cache memory usage projection map to guide proactive scaling. Although similar to BTB, this operates at cluster scale over longer timescales rather than per-burst replication over seconds. [Cachewise](https://arxiv.org/abs/2606.16824) predicts KV block reuse times for coding agents from the tool-call metadata and then evicts less aggressively when reuse is more likely. [Learned Prefix Caching](https://openreview.net/pdf?id=Vj48eXaQDM) trains a small model on prompt content to predict whether a conversation will continue and uses that to decide what to evict. These papers show that predictive signals help, but they do not address the same prefix burst case with RDMA replication.
 
-On the routing side, [Preble](https://arxiv.org/abs/2407.00023) and [Mooncake](https://arxiv.org/abs/2407.00079) discuss prefix cache reuse across many nodes, but they respond to load imbalance after it happened by moving KV around. The idea of duplicating work to cut tail latency goes back to [Jeff Dean and Luiz Barroso's "The Tail at Scale"](https://research.google/pubs/the-tail-at-scale/). BTB is the specialization of that idea for KV replication over RDMA triggered on burst detection. 
+On the routing side, [Preble](https://arxiv.org/abs/2407.00023) and [Mooncake](https://arxiv.org/abs/2407.00079) discuss prefix cache reuse across many nodes, but they respond to load imbalance after it happened by moving KV around. The idea of duplicating work to cut tail latency goes back to [Jeff Dean and Luiz Barroso's "The Tail at Scale"](https://research.google/pubs/the-tail-at-scale/). BTB is the specialization of that idea for KV replication over RDMA triggered on burst detection.
 
 # Future Work
 
