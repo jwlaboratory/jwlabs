@@ -130,6 +130,10 @@ It scores very high at Val 84.69% and Test 81.58%:
 
 (English here contains other stuff as well, like SQL, Latin, etc, which may be dragging down the score)
 
+We wanted to make sure the router would not cause an increase in latency, but because it is so tiny compared to the actual model, the cost fully ammortizes to nothing.
+
+![Router costs almost nothing (log scale) compared to the Qwen3-8B prefill](/content/specialization-is-all-speculation-needs/image9.png)
+
 
 
 # Combined LoRA keeps a lot of the gains
@@ -141,11 +145,11 @@ We also wondered if combining many languages could improve performance. Some lan
 
 We tried an experiment of training a singular "combined LoRA" over all the languages and compared the performance with the own LoRA.
 
-![Combined LoRA gains almost as much as specialized LoRA compared to base](/content/specialization-is-all-speculation-needs/image9.png)
+![Combined LoRA gains almost as much as specialized LoRA compared to base](/content/specialization-is-all-speculation-needs/image10.png)
 
 Averaged over the 26 clean languages, the per-language specialists gain +0.85pp over base and the single combined adapter gains +0.70pp, a delta of just +0.15pp. The specialists win on most langauges (19/26 languages), but the combined adapter is never far behind, and it actually wins on 6.We guess that the languages the combined model wins at (Esperanto, Yoruba, Tagalog, Malay, Indonesian, and Latin), are low-resource languages where cross-lingual transfer from related languages helps it generalize more than the specialized knowledge.
 
-![Combined retains most of the gains from the specialization on speedups](/content/specialization-is-all-speculation-needs/image10.png)
+![Combined retains most of the gains from the specialization on speedups](/content/specialization-is-all-speculation-needs/image11.png)
 
 
 This implies we just need to train on each domain individually and make sure the model learns to cleanly seperate each task in it's hidden states for better drafter performance. Because language is an easily separable task, it is largely FIRST a matter or more training data for out-of-distribution languages to improve the quality. When this saturates, then, perhaps our specialization will further shine.
@@ -169,7 +173,7 @@ As you can see, as you increase the number of experts, the interference increase
 
 Second, to prove that languages are easy and low interference, we try other english subdomains (code_python, code_sql, ood_legal, ood_medical, ood_financial, task_math_reasoning, task_summarization)
 
-![The specialists beat the combined router heavily in hard to seperate tasks](/content/specialization-is-all-speculation-needs/image11.png)
+![The specialists beat the combined router heavily in hard to seperate tasks](/content/specialization-is-all-speculation-needs/image12.png)
 
 The perdomain specialists beat the base 7/7 as expected, but the key point to see is that the combined adapater only retains about 20% of the specialist gain. This is compeletly different from the
 
@@ -185,7 +189,7 @@ The perdomain specialists beat the base 7/7 as expected, but the key point to se
 
 The merged combined LoRA is the production path we care about: it is folded into the DFlash weights before decoding, so its serving path is the same as the base drafter.
 
-![Production wall-clock across serving modes: target-only, base, merged combined, N merged specialists, hot-swapped](/content/specialization-is-all-speculation-needs/image12.png)
+![Production wall-clock across serving modes: target-only, base, merged combined, N merged specialists, hot-swapped](/content/specialization-is-all-speculation-needs/image13.png)
 
 | mode | tok/s | actual speedup vs target-only | relative vs base DFlash | accept | mean accept length |
 | :---- | :---- | :---- | :---- | :---- | :---- |
