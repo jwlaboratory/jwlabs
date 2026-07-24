@@ -180,6 +180,12 @@ The per-domain specialists beat the base 7/7 as expected, but the key point is t
 # Serving Cost
 
 
+We first compared all the different ways to serve the Specialized drafter. Merging is a process in which you take the low-rank adapter LoRa weights and you mathematically multiply them with the existing weights to create a merged single set of weights as if it was just a new fine-tuned model. The benefit of keeping them unmerged is that you can keep most of the weights the same so you have a lower memory footprint because you just need to swap out your final adapter weights. As soon as you merge, then you need to keep multiple copies that are very similar but to the computer look entirely different.
+
+We compared one merged model with the combined LORAs, compared with multiple N individually merged specialized LORAs, compared with N unmerged hot‑swappable LORAs.
+
+Because VLLM does not support hot swapping unmerged loras, we tested this on HF.
+
 | mode | meaning |
 | :---- | :---- |
 | base | DFlash, no LoRA |
@@ -187,20 +193,22 @@ The per-domain specialists beat the base 7/7 as expected, but the key point is t
 | merged\_own | routed traffic to N already-merged language specialists |
 | hotswap\_own | one drafter with unmerged per-language LoRA hot swapping |
 
-The merged combined LoRA is the production path we care about: it is folded into the DFlash weights before decoding, so its serving path is the same as the base drafter.
+![Comparing base, merged_combined, merged_own, and hotswap_own at batch size 1](/content/specialization-is-all-speculation-needs/image13.png)
 
-![Production wall-clock across serving modes: target-only, base, merged combined, N merged specialists, hot-swapped](/content/specialization-is-all-speculation-needs/image13.png)
+| mode | tok/s | vs target-only | vs base DFlash | acceptance | mean accept length |
+| :---- | ----: | ----: | ----: | ----: | ----: |
+| target-only | 46.78 | 1.000× | — | — | — |
+| base DFlash | 66.33 | 1.418× | 1.000× | 6.46% | 1.969 |
+| merged combined LoRA | 70.23 | 1.501× | 1.059× | 7.17% | 2.076 |
+| N merged own LoRAs | 70.55 | 1.508× | 1.064× | 7.33% | 2.099 |
+| hot-swapped own LoRAs | 54.73 | 1.170× | 0.825× | 7.32% | 2.098 |
 
-| mode | tok/s | actual speedup vs target-only | relative vs base DFlash | accept | mean accept length |
-| :---- | :---- | :---- | :---- | :---- | :---- |
-| target-only | 46.78 | 1.000x | \- | \- | \- |
-| base DFlash | 66.33 | 1.418x | 1.000x | 6.46% | 1.969 |
-| merged combined LoRA | 70.23 | 1.501x | 1.059x | 7.17% | 2.076 |
-| N merged own LoRAs | 70.55 | 1.508x | 1.064x | 7.33% | 2.099 |
-| hot-swapped own LoRAs | 54.73 | 1.170x | 0.825x | 7.32% | 2.098 |
+This shows us that hotswapping LoRAs without optimizing this (punica styled batch kernels perhaps) is unworkable. On the other hand, merged-combined and N merged-own show promising results. Combined LoRA gives a \+5.9% wall-clock gain over base DFlash on this mixed-language serving stream, and the one-time merge setup was only 0.073s. The N-merged-specialist path gives \+6.4% over base DFlash, only about \+0.5% relative to the merged combined LoRA.
 
-So the combined LoRA gives a \+5.9% wall-clock gain over base DFlash on this mixed-language serving stream, and the one-time merge setup was only 0.073s. The N-merged-specialist path gives \+6.4% over base DFlash, only about \+0.5% relative to the merged combined LoRA. In other words, for the clean language subset, the combined merged adapter gets almost all of the wall-clock benefit without serving N separate specialist drafters.
-The hot-swap result is the cautionary row. It gets essentially the same acceptance as the merged specialists, but drops to 54.73 tok/s, or 0.825x relative to base DFlash. The measured adapter-copy time was tiny, only 0.237s across 625 language switches; the slowdown comes from keeping the LoRA path unmerged inside the drafter forwards. For this workload, specialization only turns into serving speed when the adapter is merged into the drafter weights.
+The benefit of merged-combined is that you only need 1 set of weights. It's essentially just the drafter with more knowledge. However, it's not specialized and may have interference (as we've somewhat shown).
+
+The benefit of N-merged LoRAs is that you do not have any intereference and can have extreme specialization. The negative is that you now need to store more weights and this may perform poorly when constantly needing to swap in and out weights with heavy batch sizes.
+
 
 # Conclusion
 
