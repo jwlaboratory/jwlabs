@@ -27,11 +27,11 @@ Speculative decoding is an inference technique in which a draft model is used to
 
 You can think of the speculator (the drafter) as an approximation for the verifier (the target). An important detail is that the drafter is not trying to be correct in an external sense, but rather trying to copy the verifier.
 
-![Sketch: the target generates "The sky is GREEN" while the drafter proposes "The sky is BLUE" — the first three tokens are accepted and the last is rejected, illustrating that the drafter's job is to copy the target, not to be externally correct](/content/specialization-is-all-speculation-needs/image1.png)
+![The drafters's job is to generates tokens that copy the target, not be correct](/content/specialization-is-all-speculation-needs/image1.png)
 
 We hypothesized that since the drafter is a small approximation of the larger verifier, it has to pick and choose what areas to have the best results. While common regions get modeled well, long-tail regions have gaps. If this is true, specializing the drafter should help us where the base drafter is weakest (out of distribution).
 
-![Sketch of two overlapping distributions: a wide "target model" curve and a narrower "drafter" curve that matches the target only near the peak ("drafter approx"), leaving "missed long tail" regions on both sides where the drafter fails to model the target](/content/specialization-is-all-speculation-needs/image2.png)
+![The target has a much wider tail distrbution than what the drafter can approximate](/content/specialization-is-all-speculation-needs/image2.png)
 
 People have tried specialization for speculators in the past, but minimal or no work has been done on dynamic speculators, specializing diffusion speculators like DFlash, benchmarking at larger batch sizes, using unmerged LoRA/NaRA to serve many specializations at once, and comparing with combined/full finetunes. Below we experiment with different domains, different routing, and different trained adapters and see if they improve speculators.
 
@@ -142,11 +142,11 @@ We also wondered if combining many languages could improve performance. Some lan
 
 We tried an experiment of training a singular "combined LoRA" over all the languages and compared the performance with the own LoRA.
 
-![Base vs own-language LoRA vs combined LoRA across 26 clean WildChat languages](/content/specialization-is-all-speculation-needs/image9.png)
+![Combined LoRA gains almost as much as specialized LoRA compared to base](/content/specialization-is-all-speculation-needs/image9.png)
 
 Averaged over the 26 clean languages, the per-language specialists gain +0.85pp over base and the single combined adapter gains +0.70pp, a delta of just +0.15pp. The specialists win on most langauges (19/26 languages), but the combined adapter is never far behind, and it actually wins on 6.We guess that the languages the combined model wins at (Esperanto, Yoruba, Tagalog, Malay, Indonesian, and Latin), are low-resource languages where cross-lingual transfer from related languages helps it generalize more than the specialized knowledge.
 
-![Analytic speedup by language: base vs own vs combined](/content/specialization-is-all-speculation-needs/image10.png)
+![Combined retains most of the gains from the specialization on speedups](/content/specialization-is-all-speculation-needs/image10.png)
 
 
 This implies we just need to train on each domain individually and make sure the model learns to cleanly seperate each task in it's hidden states for better drafter performance. Because language is an easily separable task, it is largely FIRST a matter or more training data for out-of-distribution languages to improve the quality. When this saturates, then, perhaps our specialization will further shine.
@@ -170,17 +170,13 @@ As you can see, as you increase the number of experts, the interference increase
 
 Second, to prove that languages are easy and low interference, we try other english subdomains (code_python, code_sql, ood_legal, ood_medical, ood_financial, task_math_reasoning, task_summarization)
 
-![Per-domain acceptance gain over base for the seven English subdomains: own specialists beat base 7/7](/content/specialization-is-all-speculation-needs/image11.png)
+![The specialists beat the combined router heavily in hard to seperate tasks](/content/specialization-is-all-speculation-needs/image11.png)
 
-The perdomain specialists beat the base 7/7, but the key point to see is that the combined adapater only retains about 20% of the specialist gain. This is compeletly different from the
+The perdomain specialists beat the base 7/7 as expected, but the key point to see is that the combined adapater only retains about 20% of the specialist gain. This is compeletly different from the
 
 # Serving Cost
 
-There is two different ways of measuring the net speedup of the new speculators.
 
-1. Theoretical analytical
-   We can predict from the increase in mean accepted length in proportion to the increased costs of speculating, the net speedup.
-   speedup \~= mean\_accept\_length / (1 \+ drafter\_overhead)
 
 | mode | meaning |
 | :---- | :---- |
