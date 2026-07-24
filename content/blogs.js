@@ -11,7 +11,6 @@ window.BLOG_POSTS = [
     title: "Specialization is (sometimes) all Speculation needs",
     date: "2026-07-23",
     category: "Research",
-    hidden: true,
     status: "In Progress",
     authors: "Shrey Birmiwal and Anish Bhat",
     summary: "We made speculative decoding 8% faster on aggragate and upwards of 46% faster on out of distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a singular combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring signicant speedups.",
@@ -177,7 +176,6 @@ The perdomain specialists beat the base 7/7 as expected, but the key point to se
 # Serving Cost
 
 
-
 | mode | meaning |
 | :---- | :---- |
 | base | DFlash, no LoRA |
@@ -200,39 +198,21 @@ The merged combined LoRA is the production path we care about: it is folded into
 So the combined LoRA gives a \+5.9% wall-clock gain over base DFlash on this mixed-language serving stream, and the one-time merge setup was only 0.073s. The N-merged-specialist path gives \+6.4% over base DFlash, only about \+0.5% relative to the merged combined LoRA. In other words, for the clean language subset, the combined merged adapter gets almost all of the wall-clock benefit without serving N separate specialist drafters.
 The hot-swap result is the cautionary row. It gets essentially the same acceptance as the merged specialists, but drops to 54.73 tok/s, or 0.825x relative to base DFlash. The measured adapter-copy time was tiny, only 0.237s across 625 language switches; the slowdown comes from keeping the LoRA path unmerged inside the drafter forwards. For this workload, specialization only turns into serving speed when the adapter is merged into the drafter weights.
 
-## **Conclusion**
+# Conclusion
 
-For languages, specialization is almost all speculation needs.
-Clearly, specialization works and is a promising field for draft models. Recent work by @modal https://modal.com/blog/introducing-auto-endpoints and @baseten https://www.baseten.co/blog/live-draft-model-training-for-speculative-decoding/ show that training live endpoints with custom speculators per customer workload leads to astonishing speedups. We see this research idea as complementory: You can train a new LoRA per customer workload, and run with shared tenants on a singular GPU cluster.
+For languages, specialization is almost all speculation needs. The core result is that a small LoRA can recover much of the drafter's long-tail weakness, and because language domains interfere surprisingly little, one merged combined LoRA captures nearly all of the specialist gain without the serving cost of hot-swapping adapters.
 
-We also see promising to try specializing in more niche domains, such as
+Speculation does indeed work, as we see recent work from [Modal](https://modal.com/blog/introducing-auto-endpoints) and [Baseten](https://www.baseten.co/blog/live-draft-model-training-for-speculative-decoding/) showing that production systems are moving toward per-customer or per-workload speculators. Our version is complementary because it trains lightweight LoRAs for each workload, merge or route them when useful, and allows you to serve many tenants from the same GPU pool without keeping a separate drafter for everyone.
 
-## **Appendix And Future Ideas**
-
-1. Trying with Eagle, independent drafter
-   1. We briefly tried, saw eagle has higher acceptance rate, but smaller proposal depth
-   2. Similar results
-2. Trying weird domains, in english like
-   1. Sql, etc
-   2. Showed way more intereference
-   3.  (legal, sql, etc, translation, poetry) preliminary results show  more intereference and more gians from indivudal LoRA but similar speedups
-3.  Rank ladder (prelimary results show languages much gains, other stuff not much) prob bc more to learn
+We also see promising to try specializing in more niche domains, such as the math, sql, etc where it is important to align the drafter to the target model. We hope to post a follow up blog that explores the niche domains more.
 
 
+# Future Ideas
+1. In this research, we try with language domains and we also briefly experiment with more specialized fine‑grained domains within English, which have shown to see more interference and higher gains from specializing. We should further try this with more domains that are within more niche groups and see how they perform.
 
-We also did a quick sweep over a the LoRA rank to see if the depth of rank mattered. When doing LoRA, we take the model state as input, squeeze it down to r dimensions by A, then expand back out to B. Essentially, the rank becomes the width of the information bottleneck.
+2. We should try other drafters, for example, Eagle3 and Dspark and completely independent drafters and try across larger models as well, not just 7B models to see how they perform. Thank you.
 
-language	base	own r16	own r64
-Polish	3.1%	4.4%	5.0%
-Korean	3.5%	5.1%	5.8%
-Italian	8.1%	8.5%	8.7%
-Japanese	5.0%	5.9%	6.3%
-German	6.8%	7.2%	7.3%
-
-*(Rank sweep from the earlier 512-token-cap training run; numbers are directional. The trend is unaffected by the cap — retraining without truncation only raises the weak-language gains.)*
-
-This shows us that higher rank helps the most on already weak languages where the model needs to not just align but actually learn new knowledge. On the other domains that already have knowledge, a smaller rank helps align the drafter to the target.
-
+3. We should also try a quick sweep over low-rank adaptation ranks in other domains. From a brief examination on rank comparisons within languages, we found very little change between rank 16, rank 4, and rank 64 in terms of performance, which may also affect speedups because it reduces the amount of weights that need to be loaded into and from memory.
 */ }),
   },
   {
