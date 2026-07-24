@@ -13,12 +13,12 @@ window.BLOG_POSTS = [
     category: "Research",
     status: "In Progress",
     authors: "Shrey Birmiwal and Anish Bhat",
-    summary: "We made speculative decoding up to 15.3% faster and upwards of 46% faster on out-of-distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.",
+    summary: "We improved speculative decoding by up to 46% in acceptance rate on out-of-distribution languages, which translated to up to a 15.3% wall-clock speedup on those languages (and about 5% on aggregate), by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.",
     markdown: markdown(() => { /*
 
 # Specialization is (sometimes) all Speculation needs
 
-**TLDR:** We made speculative decoding up to 15.3% faster and upwards of 46% faster on out-of-distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.
+**TLDR:** We improved speculative decoding by up to 46% in acceptance rate on out-of-distribution languages, which translated to up to a 15.3% wall-clock speedup on those languages (and about 5% on aggregate), by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.
 
 # What and why are we specializing?
 
@@ -249,7 +249,6 @@ We also think it is promising to try specializing in more niche domains, such as
 2. We should try other drafters, for example Eagle3, DSpark, and completely independent drafters, and test across larger models as well, not just 7B models, to see how they perform.
 
 3. We should also try a quick sweep over low-rank adaptation ranks in other domains. From a brief examination of rank comparisons within languages, we found very little change between rank 16, rank 4, and rank 64 in terms of performance, which may also affect speedups because it reduces the amount of weights that need to be loaded into and from memory.
-
 */ }),
   },
   {
