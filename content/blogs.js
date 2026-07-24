@@ -13,12 +13,12 @@ window.BLOG_POSTS = [
     category: "Research",
     status: "In Progress",
     authors: "Shrey Birmiwal and Anish Bhat",
-    summary: "We made speculative decoding 8% faster on aggregate and upwards of 46% faster on out-of-distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.",
+    summary: "We made speculative decoding up to 15.3% faster and upwards of 46% faster on out-of-distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.",
     markdown: markdown(() => { /*
 
 # Specialization is (sometimes) all Speculation needs
 
-**TLDR:** We made speculative decoding 8% faster on aggregate and upwards of 46% faster on out-of-distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.
+**TLDR:** We made speculative decoding up to 15.3% faster and upwards of 46% faster on out-of-distribution languages by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.
 
 # What and why are we specializing?
 
@@ -205,14 +205,34 @@ Because VLLM does not support hot swapping unmerged loras, we tested this on HF.
 
 This shows us that hotswapping LoRAs without optimizing this (punica styled batch kernels perhaps) is unworkable. On the other hand, merged-combined and N merged-own show promising results. Combined LoRA gives a \+5.9% wall-clock gain over base DFlash on this mixed-language serving stream, and the one-time merge setup was only 0.073s. The N-merged-specialist path gives \+6.4% over base DFlash, only about \+0.5% relative to the merged combined LoRA.
 
+We tried on vLLM at different batch sizes on one of the best performing LoRAs (Swedish), which performed remarkable. Note that the batch size 1 result is different from above because we use vLLM and not HF.
+
+All numbers below are net wall-clock speedup vs no speculative decoding (target-only).
+
+| batch size | merged own | merged combined | base DFlash | no spec decoding |
+| ----: | ----: | ----: | ----: | ----: |
+| 1 | 1.73× | 1.69× | 1.50× | 1.00× |
+| 4 | 1.78× | 1.73× | 1.56× | 1.00× |
+| 8 | 1.63× | 1.59× | 1.42× | 1.00× |
+| 16 | 1.29× | 1.28× | 1.13× | 1.00× |
+| 32 | 0.82× | 0.81× | 0.73× | 1.00× |
+| 64 | 0.51× | 0.48× | 0.45× | 1.00× |
+
+![Swedish serving speedup vs batch size](/content/specialization-is-all-speculation-needs/image14.png)
+
+At a higher batch size, even naive speculative decoding doesn't help anymore because we're no longer memory bound, but rather compute bound. But the cool thing to observe is that at these lower batch sizes, the Swedish Specialist gives up to a 15.3% gain over the base D-Flash, and the combined LoRa nearly matches it, plus 12% at batch size 1.
+
 The benefit of merged-combined is that you only need 1 set of weights. It's essentially just the drafter with more knowledge. However, it's not specialized and may have interference (as we've somewhat shown).
 
 The benefit of N-merged LoRAs is that you do not have any intereference and can have extreme specialization. The negative is that you now need to store more weights and this may perform poorly when constantly needing to swap in and out weights with heavy batch sizes. With larger batches (say size B), we will need to pull in potentially N different experts, instead of previously only needing to pull in 1 expert. Similar to the MOE speculation problem, this is bad because in an already memory bound system we are further hurting the memory pipe.
 
-Given this, we then benchmarked using vLLM to see at different batch sizes the speedup. Note that the batch size 1 result is different from above because we use vLLM and not HF.
+We then benchmarked using vLLM to see at different batch sizes with a "MIXED BAG" of different requests from different languages. This forced the model to use the combined merged LoRA and the speedups are shown below:
 
-<image>
+*(table — pending: combined vs base vs no-spec on the 16-language mixed stream across batch sizes; results uploading soon)*
 
+*(chart — pending: mixed-bag speedup vs batch size)*
+
+We leave a future experiment to try to update the vLLM implementation and kernels to test how much slowdown hotswapping adapters or swapping entire drafters would cause within batches.
 
 # Conclusion
 
