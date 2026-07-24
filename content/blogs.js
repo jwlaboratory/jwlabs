@@ -13,12 +13,12 @@ window.BLOG_POSTS = [
     category: "Research",
     status: "In Progress",
     authors: "Shrey Birmiwal and Anish Bhat",
-    summary: "We improved speculative decoding by up to 46% in acceptance rate on out-of-distribution languages, which translated to up to a 15.3% wall-clock speedup on those languages (and about 5% on aggregate), by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.",
+    summary: "We improved speculative decoding by up to 46% in acceptance rate on out-of-distribution languages, which translated to up to a 15.3% wall-clock speedup on those languages (and up to 7.3% on aggregate), by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.",
     markdown: markdown(() => { /*
 
 # Specialization is (sometimes) all Speculation needs
 
-**TLDR:** We improved speculative decoding by up to 46% in acceptance rate on out-of-distribution languages, which translated to up to a 15.3% wall-clock speedup on those languages (and about 5% on aggregate), by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.
+**TLDR:** We improved speculative decoding by up to 46% in acceptance rate on out-of-distribution languages, which translated to up to a 15.3% wall-clock speedup on those languages (and up to 7.3% on aggregate), by specializing block diffusion drafter models using LoRA. However, we find languages have low levels of interference and a single combined LoRA captures almost all of the gains. We next hypothesize specialization will perform better in more fine-grained domains (future work) and has room to bring significant speedups.
 
 # What and why are we specializing?
 
@@ -209,14 +209,14 @@ We tried on vLLM at different batch sizes on one of the best performing LoRAs (S
 
 All numbers below are net wall-clock speedup vs no speculative decoding (target-only).
 
-| batch size | merged own | merged combined | base DFlash | no spec decoding |
+| batch size | merged own | merged combined | base DFlash | merged own vs base |
 | ----: | ----: | ----: | ----: | ----: |
-| 1 | 1.73× | 1.69× | 1.50× | 1.00× |
-| 4 | 1.78× | 1.73× | 1.56× | 1.00× |
-| 8 | 1.63× | 1.59× | 1.42× | 1.00× |
-| 16 | 1.29× | 1.28× | 1.13× | 1.00× |
-| 32 | 0.82× | 0.81× | 0.73× | 1.00× |
-| 64 | 0.51× | 0.48× | 0.45× | 1.00× |
+| 1 | 1.73× | 1.69× | 1.50× | +15.3% |
+| 4 | 1.78× | 1.73× | 1.56× | +14.1% |
+| 8 | 1.63× | 1.59× | 1.42× | +14.8% |
+| 16 | 1.29× | 1.28× | 1.13× | +14.2% |
+| 32 | 0.82× | 0.81× | 0.73× | +12.3% |
+| 64 | 0.51× | 0.48× | 0.45× | +13.3% |
 
 ![Swedish serving speedup vs batch size](/content/specialization-is-all-speculation-needs/image14.png)
 
@@ -249,6 +249,7 @@ We also think it is promising to try specializing in more niche domains, such as
 2. We should try other drafters, for example Eagle3, DSpark, and completely independent drafters, and test across larger models as well, not just 7B models, to see how they perform.
 
 3. We should also try a quick sweep over low-rank adaptation ranks in other domains. From a brief examination of rank comparisons within languages, we found very little change between rank 16, rank 4, and rank 64 in terms of performance, which may also affect speedups because it reduces the amount of weights that need to be loaded into and from memory.
+
 */ }),
   },
   {
