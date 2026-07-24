@@ -248,6 +248,8 @@ We leave a future experiment to try to update the vLLM implementation and kernel
 
 For languages, specialization is almost all speculation needs. The core result is that a small LoRA can recover much of the drafter's long-tail weakness, and because language domains interfere surprisingly little, one merged combined LoRA captures nearly all of the specialist gain without the serving cost of hot-swapping adapters.
 
+![Batch-size-1 serving: within-workload speedup of the specialized Swedish DFlash (+15.3%) and the merged combined adapter on a random mixed stream (+5.4%) over base DFlash](/content/specialization-is-all-speculation-needs/image16.png)
+
 Speculation does indeed work, as we see recent work from [Modal](https://modal.com/blog/introducing-auto-endpoints) and [Baseten](https://www.baseten.co/blog/live-draft-model-training-for-speculative-decoding/) showing that production systems are moving toward per-customer or per-workload speculators. Our version is complementary because it trains lightweight LoRAs for each workload, then merges or routes them when useful, allowing you to serve many tenants from the same GPU pool without keeping a separate drafter for everyone.
 
 We also think it is promising to try specializing in more niche domains, such as math and SQL, where it is important to align the drafter to the target model. We hope to post a follow-up blog that explores these niche domains more.
