@@ -624,6 +624,10 @@ body[data-page="article"] .site-footer {
   white-space: nowrap;
 }
 
+.blog-content td.is-low-multiplier {
+  background: #fff2f2;
+}
+
 .blog-content tr:last-child td {
   border-bottom: 1px solid var(--line);
 }

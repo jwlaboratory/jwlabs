@@ -394,6 +394,12 @@ const createTable = (rows) => {
       .split("|")
       .map((cell) => cell.trim());
 
+  const getMultiplierValue = (cell) => {
+    const match = unescapeMarkdownSyntax(cell).match(/^([+-]?\d+(?:\.\d+)?)\s*[×x]$/i);
+
+    return match ? Number.parseFloat(match[1]) : null;
+  };
+
   const header = document.createElement("tr");
   splitRow(headerRow).forEach((cell) => {
     const th = document.createElement("th");
@@ -407,6 +413,12 @@ const createTable = (rows) => {
 
     splitRow(row).forEach((cell) => {
       const td = document.createElement("td");
+      const multiplierValue = getMultiplierValue(cell);
+
+      if (multiplierValue !== null && multiplierValue < 1) {
+        td.classList.add("is-low-multiplier");
+      }
+
       appendInlineMarkdown(td, cell);
       tr.append(td);
     });
