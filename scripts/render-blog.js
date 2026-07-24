@@ -192,8 +192,15 @@ const createList = (items = [], ordered = false) => {
   const list = document.createElement(ordered ? "ol" : "ul");
 
   items.forEach((item) => {
+    const value = typeof item === "string" ? null : item.value;
+    const text = typeof item === "string" ? item : item.text;
     const listItem = document.createElement("li");
-    appendInlineMarkdown(listItem, item);
+
+    if (ordered && Number.isInteger(value)) {
+      listItem.value = value;
+    }
+
+    appendInlineMarkdown(listItem, text);
     list.append(listItem);
   });
 
@@ -421,6 +428,48 @@ const isBlockStart = (line) =>
   /^\|.+\|$/.test(line) ||
   /^```/.test(line);
 
+const getNextNonBlankLineIndex = (lines, startIndex) => {
+  let index = startIndex;
+
+  while (index < lines.length && !normalizeLine(lines[index]).trim()) {
+    index += 1;
+  }
+
+  return index;
+};
+
+const collectListItems = (lines, startIndex, itemPattern, createItem) => {
+  const items = [];
+  let index = startIndex;
+
+  while (index < lines.length) {
+    const line = normalizeLine(lines[index]);
+    const match = line.match(itemPattern);
+
+    if (match) {
+      items.push(createItem(match));
+      index += 1;
+      continue;
+    }
+
+    if (!line.trim()) {
+      const nextIndex = getNextNonBlankLineIndex(lines, index + 1);
+
+      if (
+        nextIndex < lines.length &&
+        itemPattern.test(normalizeLine(lines[nextIndex]))
+      ) {
+        index = nextIndex;
+        continue;
+      }
+    }
+
+    break;
+  }
+
+  return { items, index };
+};
+
 const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) => {
   const fragment = document.createDocumentFragment();
   const rawLines = markdown.replace(/\r\n/g, "\n").trim().split("\n");
@@ -510,31 +559,29 @@ const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) =>
     }
 
     if (/^[-*]\s+/.test(line)) {
-      const items = [];
+      const result = collectListItems(lines, index, /^[-*]\s+(.+)/, (match) => ({
+        text: match[1],
+      }));
 
-      while (
-        index < lines.length &&
-        /^[-*]\s+/.test(normalizeLine(lines[index]))
-      ) {
-        items.push(normalizeLine(lines[index]).replace(/^[-*]\s+/, ""));
-        index += 1;
-      }
-
+      const { items } = result;
+      index = result.index;
       fragment.append(createList(items));
       continue;
     }
 
     if (/^\d+\.\s+/.test(line)) {
-      const items = [];
+      const result = collectListItems(
+        lines,
+        index,
+        /^(\d+)\.\s+(.+)/,
+        (match) => ({
+          value: Number.parseInt(match[1], 10),
+          text: match[2],
+        }),
+      );
 
-      while (
-        index < lines.length &&
-        /^\d+\.\s+/.test(normalizeLine(lines[index]))
-      ) {
-        items.push(normalizeLine(lines[index]).replace(/^\d+\.\s+/, ""));
-        index += 1;
-      }
-
+      const { items } = result;
+      index = result.index;
       fragment.append(createList(items, true));
       continue;
     }
