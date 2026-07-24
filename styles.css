@@ -617,6 +617,12 @@ body[data-page="article"] .site-footer {
   vertical-align: top;
 }
 
+.blog-content td strong,
+.blog-content th strong {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 .blog-content th {
   border-top: 1px solid var(--line);
   background: #fafafa;
