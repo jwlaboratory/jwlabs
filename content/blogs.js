@@ -35,7 +35,7 @@ People have tried specialization for speculators in the past, but minimal or no 
 
 # Speculators are uneven across languages
 
-We first benchmarked the most popular speculator (z-labs/Qwen3-8b-DFlash-b16, a 1B block-diffusion drafter) for Qwen/Qwen3-8B across many languages.
+We first benchmarked the most popular speculator (z-lab/Qwen3-8b-DFlash-b16, a 1B block-diffusion drafter) for Qwen/Qwen3-8B across many languages.
 
 We split WildChat 4.8M by language column and kept 26 languages with at least 1,200 usable prompts/conversations (1,000 train / 100 validation / 100 test split after deduplication). Then, we ran the target model and compared the acceptance rate on the 26 languages, producing the results below.
 
@@ -254,7 +254,7 @@ We also think it is promising to try specializing in more niche domains, such as
 # Future Ideas
 1. In this research, we try language domains and briefly experiment with more specialized fine‑grained domains within English, which show more interference and higher gains from specializing. We should further try this with more domains that are within more niche groups and see how they perform.
 
-2. We should try other drafters, for example Eagle3, DSpark, and completely independent drafters, and test across larger models as well, not just 7B models, to see how they perform.
+2. We should try other drafters, for example Eagle3, DSpark, and completely independent drafters, and test across larger models as well, not just 8B models, to see how they perform.
 
 3. We should also try a quick sweep over low-rank adaptation ranks in other domains. From a brief examination of rank comparisons within languages, we found very little change between rank 16, rank 4, and rank 64 in terms of performance, which may also affect speedups because it reduces the amount of weights that need to be loaded into and from memory.
 */ }),
