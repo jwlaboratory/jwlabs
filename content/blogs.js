@@ -144,7 +144,7 @@ We tried an experiment of training a singular "combined LoRA" over all the langu
 
 ![Base vs own-language LoRA vs combined LoRA across 26 clean WildChat languages](/content/specialization-is-all-speculation-needs/image9.png)
 
-Looking at the net speedup per domain []
+Averaged over the 26 clean languages, the per-language specialists gain +0.85pp over base and the single combined adapter gains +0.70pp, a delta of just +0.15pp. The specialists win on most langauges (19/26 languages), but the combined adapter is never far behind, and it actually wins on 6.We guess that the languages the combined model wins at (Esperanto, Yoruba, Tagalog, Malay, Indonesian, and Latin), are low-resource languages where cross-lingual transfer from related languages helps it generalize more than the specialized knowledge.
 
 ![Analytic speedup by language: base vs own vs combined](/content/specialization-is-all-speculation-needs/image10.png)
 
@@ -170,12 +170,9 @@ As you can see, as you increase the number of experts, the interference increase
 
 Second, to prove that languages are easy and low interference, we try other english subdomains (code_python, code_sql, ood_legal, ood_medical, ood_financial, task_math_reasoning, task_summarization)
 
-<image>
+![Per-domain acceptance gain over base for the seven English subdomains: own specialists beat base 7/7](/content/specialization-is-all-speculation-needs/image11.png)
 
-The perdomain specialists beat the base 7/7, but the key point to see is that the combined adapater only retains about 20% of the specialist gain.
-
-<image>
-
+The perdomain specialists beat the base 7/7, but the key point to see is that the combined adapater only retains about 20% of the specialist gain. This is compeletly different from the
 
 # Serving Cost
 
@@ -194,7 +191,7 @@ There is two different ways of measuring the net speedup of the new speculators.
 
 The merged combined LoRA is the production path we care about: it is folded into the DFlash weights before decoding, so its serving path is the same as the base drafter.
 
-![Production wall-clock across serving modes: target-only, base, merged combined, N merged specialists, hot-swapped](/content/specialization-is-all-speculation-needs/image11.png)
+![Production wall-clock across serving modes: target-only, base, merged combined, N merged specialists, hot-swapped](/content/specialization-is-all-speculation-needs/image12.png)
 
 | mode | tok/s | actual speedup vs target-only | relative vs base DFlash | accept | mean accept length |
 | :---- | :---- | :---- | :---- | :---- | :---- |
@@ -210,6 +207,9 @@ The hot-swap result is the cautionary row. It gets essentially the same acceptan
 ## **Conclusion**
 
 For languages, specialization is almost all speculation needs.
+Clearly, specialization works and is a promising field for draft models. Recent work by @modal https://modal.com/blog/introducing-auto-endpoints and @baseten https://www.baseten.co/blog/live-draft-model-training-for-speculative-decoding/ show that training live endpoints with custom speculators per customer workload leads to astonishing speedups. We see this research idea as complementory: You can train a new LoRA per customer workload, and run with shared tenants on a singular GPU cluster.
+
+We also see promising to try specializing in more niche domains, such as
 
 ## **Appendix And Future Ideas**
 
