@@ -207,7 +207,11 @@ This shows us that hotswapping LoRAs without optimizing this (punica styled batc
 
 The benefit of merged-combined is that you only need 1 set of weights. It's essentially just the drafter with more knowledge. However, it's not specialized and may have interference (as we've somewhat shown).
 
-The benefit of N-merged LoRAs is that you do not have any intereference and can have extreme specialization. The negative is that you now need to store more weights and this may perform poorly when constantly needing to swap in and out weights with heavy batch sizes.
+The benefit of N-merged LoRAs is that you do not have any intereference and can have extreme specialization. The negative is that you now need to store more weights and this may perform poorly when constantly needing to swap in and out weights with heavy batch sizes. With larger batches (say size B), we will need to pull in potentially N different experts, instead of previously only needing to pull in 1 expert. Similar to the MOE speculation problem, this is bad because in an already memory bound system we are further hurting the memory pipe.
+
+Given this, we then benchmarked using vLLM to see at different batch sizes the speedup. Note that the batch size 1 result is different from above because we use vLLM and not HF.
+
+<image>
 
 
 # Conclusion
