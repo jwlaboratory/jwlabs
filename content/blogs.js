@@ -32,7 +32,7 @@ We hypothesized that since the drafter is a small approximation of the larger ve
 
 ![The target has a much wider tail distribution than what the drafter can approximate](/content/specialization-is-all-speculation-needs/image2.png)
 
-People have tried specialization for speculators in the past, but minimal or no work has been done on dynamic speculators, specializing diffusion speculators like DFlash, benchmarking at larger batch sizes, using unmerged LoRA/NaRA to serve many specializations at once, and comparing with combined/full fine-tunes. Below we experiment with different domains, different routing, and different trained adapters to see if they improve speculators.
+People have tried specialization for speculators in the past, but minimal or no work has been done on dynamic speculators, specializing diffusion speculators like DFlash for domain adaptation, benchmarking at larger batch sizes, using unmerged LoRA/NaRA to serve many specializations at once, and comparing with combined/full fine-tunes. Below we experiment with different domains, different routing, and different trained adapters to see if they improve speculators.
 
 # Speculators are uneven across languages
 
@@ -152,7 +152,7 @@ Averaged over the 26 clean languages, the per-language specialists gain +0.85pp 
 ![Combined retains most of the gains from the specialization on speedups](/content/specialization-is-all-speculation-needs/image11.png)
 
 
-This implies we just need to train on each domain individually and make sure the model learns to cleanly separate each task in its hidden states for better drafter performance. Because language is an easily separable task, it is largely first a matter of adding more training data for out-of-distribution languages to improve the quality. When this saturates, then, perhaps our specialization will further shine.
+This implies that for cleanly separable domains, a single combined LoRA is sufficient. Training individual specialists is only necessary when the model cannot cleanly separate the task in its hidden state. Because language is an easily separable task, it is largely first a matter of adding more training data for out-of-distribution languages to improve the quality. When this saturates, then, perhaps our specialization will further shine.
 
 # Interference gets real in more fine-grained domains
 
@@ -228,9 +228,18 @@ The benefit of N-merged LoRAs is that you do not have any intereference and can 
 
 We then benchmarked using vLLM to see at different batch sizes with a "MIXED BAG" of different requests from different languages. This forced the model to use the combined merged LoRA and the speedups are shown below:
 
-*(table — pending: combined vs base vs no-spec on the 16-language mixed stream across batch sizes; results uploading soon)*
+| batch size | merged combined | base DFlash | no spec decoding |
+| ----: | ----: | ----: | ----: |
+| 1 | 1.50× | 1.42× | 1.00× |
+| 4 | 1.48× | 1.39× | 1.00× |
+| 8 | 1.36× | 1.27× | 1.00× |
+| 16 | 0.98× | 0.91× | 1.00× |
+| 32 | 0.66× | 0.62× | 1.00× |
+| 64 | 0.38× | 0.36× | 1.00× |
 
-*(chart — pending: mixed-bag speedup vs batch size)*
+![Mixed 16-language serving stream: merged combined vs base DFlash speedup across batch sizes](/content/specialization-is-all-speculation-needs/image15.png)
+
+Even on a fully mixed stream, one combined adapter holds a +5–7% wall-clock edge over base DFlash across batch sizes (peaking at +7.3% around batch 8), with a single drafter and no routing. As before, the overall speedup still falls with batch, crossing break-even around batch 14.
 
 We leave a future experiment to try to update the vLLM implementation and kernels to test how much slowdown hotswapping adapters or swapping entire drafters would cause within batches.
 
