@@ -147,6 +147,44 @@ const preprocessPostMarkdown = (markdown = "", post = {}) => {
   };
 };
 
+const appendAuthorsWithLinks = (root, authorsText) => {
+  const linkable = (window.AUTHORS ?? []).filter(
+    (author) => author.email || author.github || author.x,
+  );
+
+  if (linkable.length === 0) {
+    root.textContent = authorsText;
+    return;
+  }
+
+  const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const names = linkable
+    .map((author) => author.name)
+    .sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(`(${names.map(escapeRegExp).join("|")})`, "g");
+
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(authorsText)) !== null) {
+    if (match.index > lastIndex) {
+      root.append(
+        document.createTextNode(authorsText.slice(lastIndex, match.index)),
+      );
+    }
+
+    const link = document.createElement("a");
+    link.className = "author-link";
+    link.href = `/team.html#${slugify(match[1])}`;
+    link.textContent = match[1];
+    root.append(link);
+
+    lastIndex = pattern.lastIndex;
+  }
+
+  root.append(document.createTextNode(authorsText.slice(lastIndex)));
+};
+
 const appendInlineMarkdown = (root, text) => {
   const cleanText = unescapeMarkdownSyntax(text);
   const inlinePattern =
@@ -762,7 +800,7 @@ const renderArticlePage = () => {
   dateNode.textContent = formatBlogDate(post.date);
 
   if (authors) {
-    authorNode.textContent = authors;
+    appendAuthorsWithLinks(authorNode, authors);
     metadata.hidden = false;
   } else {
     authorNode.remove();

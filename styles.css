@@ -643,6 +643,63 @@ body[data-page="article"] .site-footer {
   color: var(--muted);
 }
 
+.team-list {
+  display: grid;
+  border-top: 1px solid var(--text);
+  max-width: var(--content-width);
+}
+
+.team-member {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: baseline;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  scroll-margin-top: var(--top-spacing);
+}
+
+.team-member:first-child {
+  border-top: 0;
+}
+
+.team-member:target .team-member-name {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.team-member-name {
+  font-size: 15px;
+  color: var(--text);
+}
+
+.team-contact-links {
+  display: flex;
+  gap: 20px;
+}
+
+.team-contact-link {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.team-contact-link:hover {
+  color: var(--text);
+}
+
+.blogmetadata .author-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: #cccccc;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.blogmetadata .author-link:hover {
+  text-decoration-color: var(--text);
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;
