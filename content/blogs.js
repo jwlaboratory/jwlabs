@@ -1976,9 +1976,9 @@ Earlier, I explained that DFlash outputs a table with `Vocab` columns and `draft
 
 The key insight of the DDTree paper is that we can use these independent marginals to construct not just a single path or single solution, but a tree of solutions. Whenever the confidence of the drafter is low, we can branch into 2 paths and we will capture a higher success probability. While the paths are more shallow, it will have a higher overall acceptance rate.
 
-For each node $u$ in the draft tree $T$, let $X_u \in \{0, 1\}$ indicate whether $u$ is accepted. A node is accepted only if every token on the chain from the root down to $u$ is accepted, so the number of accepted tokens is $\sum_{u \in T} X_u$. By [linearity of expectation](https://brilliant.org/wiki/linearity-of-expectation/) (which holds even when the $X_u$ are dependent):
+For each node $u$ in the draft tree $T$, let $X_u \in \lbrace 0, 1 \rbrace$ indicate whether $u$ is accepted. A node is accepted only if every token on the chain from the root down to $u$ is accepted, so the number of accepted tokens is $\sum_{u \in T} X_u$. By [linearity of expectation](https://brilliant.org/wiki/linearity-of-expectation/) (which holds even when the $X_u$ are dependent):
 
-$$\mathbb{E}\left[\#\text{accepted} \mid T\right] = \mathbb{E}\left[\sum_{u \in T} X_u\right] = \sum_{u \in T} \Pr[u \text{ accepted}] = \sum_{u \in T} \; \prod_{v \in \mathrm{path}(u)} q(v)$$
+$$\mathbb{E}\left[\text{accepted} \mid T\right] = \mathbb{E}\left[\sum_{u \in T} X_u\right] = \sum_{u \in T} \Pr[u \text{ accepted}] = \sum_{u \in T} \; \prod_{v \in \mathrm{path}(u)} q(v)$$
 
 where $\mathrm{path}(u)$ is the chain from the root to $u$ (inclusive), and $q(v)$ is the per-token acceptance probability, so the product is the prefix probability that the entire chain up to $u$ survives verification.
 
@@ -1988,11 +1988,11 @@ Let's compare two different ways of doing this: chain vs tree.
 
 Here you can see the sum of the chain has an expected value of:
 
-$$\mathbb{E}\big[\#\text{accepted} \mid \text{chain}\big] = \sum_{d=1}^{4} \prod_{i=1}^{d} q_i = 0.55 + 0.44 + 0.31 + 0.26 = 1.56$$
+$$\mathbb{E}\big[\text{accepted} \mid \text{chain}\big] = \sum_{d=1}^{4} \prod_{i=1}^{d} q_i = 0.55 + 0.44 + 0.31 + 0.26 = 1.56$$
 
 However the sum of the tree has an expected value of:
 
-$$\mathbb{E}\big[\#\text{accepted} \mid \text{tree}\big] = \sum_{u \in T} \prod_{v \in \mathrm{path}(u)} q(v) = 0.55 + 0.40 + 0.44 + 0.34 = \mathbf{1.73}$$
+$$\mathbb{E}\big[\text{accepted} \mid \text{tree}\big] = \sum_{u \in T} \prod_{v \in \mathrm{path}(u)} q(v) = 0.55 + 0.40 + 0.44 + 0.34 = \mathbf{1.73}$$
 
 Clearly, the tree even though being much shallower has a higher expected value (even at the same total token budget). The cost of the tree is the cost of creating and verifying more tokens. DDTree mitigates much of this in the way it creates the tree and its tree attention mask, but at higher batch sizes the cost definitely weighs down on performance.
 
@@ -2002,7 +2002,7 @@ DDTree implements the tree creation and verification using a lazy best-first hea
 
 A max heap is a data structure that uses a tree. The heap keeps the max element at the top, and at each layer lower, strictly smaller items. You can push any element, and the heap will add it at $O(\log N)$ time. You can also take the top element out in $O(\log N)$ time as well because of the nature of tree operations. You can read about how max heaps work here: [introduction to max heap](https://www.geeksforgeeks.org/dsa/introduction-to-max-heap-data-structure/).
 
-**Step 1: Sorting the DFlash marginals**
+#### Step 1: Sorting the DFlash marginals
 
 The matrix shape is 15 rows (token guess at position 1, 2, … block size = 15) by vocab size (approx 152k columns). On GPU (`torch.topk`), it selects the top K logits of each row (K being the max token budget for the tree, because we can never take something outside the max token budget anyway), and then runs `torch.logsumexp` to make each logit comparable, then finally sorts each row.
 
@@ -2020,11 +2020,11 @@ top_logits, top_token_ids = torch.topk(logits, k=topk, dim=-1)
 log_z = torch.logsumexp(logits, dim=-1, keepdim=True)
 ```
 
-**Step 2: Copy this over to the CPU**
+#### Step 2: Copy this over to the CPU
 
 Next, the GPU sends these values to the CPU. Since the actual tree generation involves building a heap (sequential) and lookup tables, it's much better suited for the CPU rather than the device/GPU.
 
-The cost of this is that we need to do a device to host synchronization, causing blockades and transfer costs between CPU and GPU. This is clearly bad, but the DDTree authors outweigh this synchronization with the benefits of the tree. To learn more about this, read this article by @charles: [host overhead and inference efficiency](https://modal.com/blog/host-overhead-inference-efficiency).
+The cost of this is that we need to do a device to host synchronization, causing blockades and transfer costs between CPU and GPU. This is clearly bad, but the DDTree authors outweigh this synchronization with the benefits of the tree. To learn more about this, read this article by [@charles_irl](https://x.com/charles_irl): [host overhead and inference efficiency](https://modal.com/blog/host-overhead-inference-efficiency).
 
 ![The copy over from device to host.](/content/sparklingtree/fig-device-to-host.png)
 
@@ -2034,7 +2034,7 @@ top_token_ids_cpu = top_token_ids.to(device="cpu", dtype=torch.long)
 build_subtimes["tree_build_copy"] = cuda_time() - copy_start
 ```
 
-**Step 3: The best-first heap algorithm**
+#### Step 3: The best-first heap algorithm
 
 The algorithm will pop the top element in the heap (highest probability cumulative path) so far. Then, add the next highest probability sibling (explore horizontally), and the highest probability child (explore deeper), back into the heap.
 
@@ -2066,7 +2066,7 @@ while heap and node_count < budget:
         heapq.heappush(heap, (-child_logw, child_ranks, current_index, depth + 1, 0, child_logw))
 ```
 
-**Step 4: Creating the tree mask**
+#### Step 4: Creating the tree mask
 
 This part runs through the tree and creates a flattened indexed array that explains what the ancestor of each token is. This becomes useful during the speculative decoding verification step, because the GPU can do a single fat matrix multiplication instead of many small ones, because it knows exactly what tokens need to be computed relating to what other KV.
 
