@@ -150,19 +150,14 @@ const preprocessPostMarkdown = (markdown = "", post = {}) => {
 const getArticleUrl = () =>
   `${window.location.origin}${window.location.pathname}${window.location.search}`;
 
-// A short prompt that points the model at the public article and asks it to
-// read the page itself. Keeps the resulting URL small enough that every target
-// accepts it (ChatGPT silently drops an over-long `?q=`).
+// A minimal prompt: just point the model at the public article and ask it to
+// open and read the page itself. No summary, so the resulting `?q=` stays short
+// enough that ChatGPT never drops it for being over-length.
 const buildLinkPrompt = (post, url) => {
-  const summary = post.summary ? `\nSummary: ${post.summary}\n` : "";
-
   return (
-    `I'm reading this JW Labs research article and I'd like your help ` +
-    `understanding and discussing it.\n\n` +
-    `Title: ${post.title}\n` +
-    `Link: ${url}\n${summary}\n` +
-    `Please open the link above to read the full article, then help me ` +
-    `discuss it and answer my questions.`
+    `Please open and read this JW Labs research article, then help me ` +
+    `understand and discuss it: ${url}\n\n` +
+    `Title: ${post.title}`
   );
 };
 
@@ -209,6 +204,16 @@ const createAskAiBar = (post) => {
     link.textContent = name;
     bar.append(link);
   });
+
+  // Raw-markdown page: the reliable fallback — copy/paste the full article into
+  // any model, no URL-length limits.
+  const markdownLink = document.createElement("a");
+  markdownLink.className = "ask-ai-link ask-ai-link-alt";
+  markdownLink.href = `/markdown.html?id=${encodeURIComponent(getPostId(post))}`;
+  markdownLink.target = "_blank";
+  markdownLink.rel = "noopener noreferrer";
+  markdownLink.textContent = "Open markdown";
+  bar.append(markdownLink);
 
   return bar;
 };

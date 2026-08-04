@@ -376,6 +376,73 @@ body[data-page="article"] .site-footer {
   border-color: var(--text);
 }
 
+.ask-ai-link-alt {
+  color: var(--muted);
+}
+
+.markdown-page {
+  max-width: var(--article-max-width);
+}
+
+.markdown-heading {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.markdown-subhead {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.markdown-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.markdown-copy {
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.markdown-copy:hover {
+  border-color: var(--text);
+}
+
+.markdown-back {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.markdown-source {
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafafa;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown-source code {
+  font-family: inherit;
+  white-space: inherit;
+}
+
 #abstract,
 .blog-abstract {
   margin-bottom: 24px;
