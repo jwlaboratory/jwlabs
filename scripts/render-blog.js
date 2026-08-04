@@ -213,7 +213,64 @@ const createAskAiBar = (post) => {
   markdownLink.textContent = "Open markdown";
   bar.append(markdownLink);
 
+  bar.append(createShareButton(post));
+
   return bar;
+};
+
+// Canonical, shareable URL for a post — the clean /post/<slug> form, regardless
+// of whether the reader arrived via ?id= or the pretty path.
+const getShareUrl = (post) =>
+  `${window.location.origin}/post/${encodeURIComponent(getPostId(post))}`;
+
+const createShareButton = (post) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ask-ai-link ask-ai-share";
+  button.textContent = "Copy link";
+
+  let resetTimer = null;
+
+  const showCopied = () => {
+    button.textContent = "Copied!";
+    button.classList.add("is-copied");
+    window.clearTimeout(resetTimer);
+    resetTimer = window.setTimeout(() => {
+      button.textContent = "Copy link";
+      button.classList.remove("is-copied");
+    }, 2000);
+  };
+
+  const copyText = async (text) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    // Fallback for insecure contexts / older browsers.
+    const helper = document.createElement("textarea");
+    helper.value = text;
+    helper.setAttribute("readonly", "");
+    helper.style.position = "absolute";
+    helper.style.left = "-9999px";
+    document.body.append(helper);
+    helper.select();
+    document.execCommand("copy");
+    helper.remove();
+  };
+
+  button.addEventListener("click", async () => {
+    try {
+      await copyText(getShareUrl(post));
+      showCopied();
+    } catch {
+      // If the clipboard is unavailable, fall back to a prompt so the reader
+      // can still grab the link manually.
+      window.prompt("Copy this link:", getShareUrl(post));
+    }
+  });
+
+  return button;
 };
 
 const appendAuthorsWithLinks = (root, authorsText) => {

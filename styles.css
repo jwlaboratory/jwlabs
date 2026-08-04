@@ -380,6 +380,17 @@ body[data-page="article"] .site-footer {
   color: var(--muted);
 }
 
+.ask-ai-share {
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ask-ai-share.is-copied {
+  border-color: var(--text);
+  color: var(--text);
+}
+
 #abstract,
 .blog-abstract {
   margin-bottom: 24px;
