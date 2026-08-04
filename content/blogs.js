@@ -1926,4 +1926,212 @@ python3 3-workload/generate/generate_combined_dataset.py \
 
 */ }),
   },
+  {
+    slug: "sparklingtree",
+    title: "SparklingTree: 19% faster SOTA speculative decoding",
+    date: "2026-08-03",
+    category: "Research",
+    status: "In Progress",
+    hidden: true,
+    summary: "DFlash is a speculative decoding method that uses a parallel diffusion draft model, creating independent marginals. DDTree built on this by adding tree based verification to try multiple branches at once. DSpark improved on DFlash by adding an autoregressive markov head to condition the diffusion draft outputs. SparklingTree combined DFlash, DSpark, and DDTree by creating a tree that is conditioned using a markov model and shows frontier speedups.",
+    markdown: markdown(() => { /*
+# SparklingTree: 19% faster SOTA speculative decoding by combining first-order markov correction (DSpark) and DDTree (tree based block diffusion draft speculative decoding) \+ a hitchhikers guide to DSpark, DDtree, and DFlash
+
+TLDR: DFlash is a speculative decoding method that uses a parallel diffusion draft model, creating independent marginals. DDTree built on this by adding tree based verification to try multiple branches at once. DSpark improved on DFlash by adding an autoregressive markov head to condition the diffusion draft outputs. SparklingTree combined DFlash, DSpark, and DDTree by creating a tree that is conditioned using a markov model and shows frontier speedups.
+
+# Understanding DFlash
+
+Speculative decoding is a method in which a draft (tiny) language model drafts multiple tokens at once, so that a target (large) model can verify multiple tokens at once (parallel) instead of one at a time. For more information, you should read this article: [https://jwlabs.vercel.app/post/speculative-decoding-first-principles](https://jwlabs.vercel.app/post/speculative-decoding-first-principles)
+
+Traditionally, speculative decoding has been done using autoregressive language models (step by step generation, like ChatGPT or Claude). Over time, advancements from MTP to Medusa to Eagle led to higher and higher acceptance lengths. To increase the max amount of drafted tokens, we would increase the amount of work by a linear factor, since the model is autoregressive. \*actually, it’d be even more than linear, since attention is o(n^2) operation that increases as the \# of tokens increases\*
+
+> **[Figure placeholder]** Graph showing as length increases, the time to create tokens increases
+
+Suddenly, the “free drafter” does not look like a free drafter, even though acceptance lengths are high. This motives DFlash.
+
+DFlash uses a block level diffusion draft model, instead of an autoregressive language model. This means that instead of creating one token at a time, DFlash “denoises” an entire block in parallel. (For diffusion models, increasing the number of tokens generated does not increase the latency, while it may reduce quality of the drafter). 
+
+> **[Figure placeholder]** Graph showing as length increases, the time taken does not increase for diffusion
+
+While the quality of the entire DFlash is lower (lower acceptance rate), it can draft 15 tokens instead of traditional drafters, i.e. Eagle3 (drafting just 3 at a time).
+
+> **[Figure placeholder]** Acceptance rate | acceptance length of eagle vs dflash
+
+DFlash creates a matrix of marginal probabilities that is sampled from and used as the drafted token for the target. We’ll see how this is important in the next section. You can visualize this as a table with `Vocab` columns and `draft block size` rows.
+
+> **[Formula placeholder]** q(ui | c, b) — Probability at token pos i, depends on context + noise, but not the prev token — Precix probability is q(u) = multiply (qi(ui)), each terms probability of token
+
+DFlash brings huge speedups, however we'll discuss more of the limitations of DFlash in the following 2 sections.
+
+DFlash Paper: [https://arxiv.org/pdf/2602.06036](https://arxiv.org/pdf/2602.06036)
+
+# Understanding DDTree
+
+Earlier, I explained that DFlash outputs a table  with `Vocab` columns and `draft block size` rows. Each row is completely independent of each other (this is called *marginal* in statistics).
+
+> **[Formula placeholder]** Shows the DFlash output table
+
+The key insight of the DDTree paper is that we can use these independent marginals to construct not just a single path or single solution, but a tree of solutions. Whenever the confidence of the drafter is low, we can branch into 2 paths and we will capture a higher success probability. While the paths are more shallow, it will have a higher overall acceptance rate.
+
+In order to prove this, you would think you need to include the length and probability of each node together, but the math rule linearity of expectation shows that the expected \# of accepted tokens is equal to the sum of the independent marginals of the chain that led up to it. You can read more about this here, [https://brilliant.org/wiki/linearity-of-expectation/](https://brilliant.org/wiki/linearity-of-expectation/)
+
+> **[Formula placeholder]** E{accepttanct T] = sum u in T (qU)) ..
+
+> **[Figure placeholder]** Shows chain, shows tree
+
+> **[Figure placeholder]**
+
+Here you can see the sum of the chain has an expected value of:  
+
+> **[Formula placeholder]**
+
+However the sum of the tree has an expected value of:  
+
+> **[Formula placeholder]**
+
+Clearly, the tree even though being much shallower has a higher expected value (even at the same total token budget). The cost of the tree is the cost of creating and verifying more tokens. DDTree mitigates much of this in the way it creates the tree and its tree attention mask, but at higher batch sizes the cost definitely weighs down on performance. 
+
+### How is the tree actually created?
+
+DDTree implements the tree creation and verification using a lazy best-first heap algorithm. It’s important to understand how it works because in SparklingTree we have to modify this algorithm.
+
+A max heap is a data structure that uses a tree. The heap keeps the max element at the top, and at each layer lower, strictly smaller items. You can push any element, and the heap will add it at O(log (N)) time. You can also take the top element out in O(log (N)) time as well because of the nature of tree operations. You can read about max heaps work here [https://www.geeksforgeeks.org/dsa/introduction-to-max-heap-data-structure/](https://www.geeksforgeeks.org/dsa/introduction-to-max-heap-data-structure/)
+
+**Step 1: Sorting the DFlash marginals**
+
+The matrix shape is 15 rows (token guess at position 1, 2, … block size \= 15\) by vocab size (approx 152k columns). On GPU (torch.topk), it selects the top K logits of each row (K being the max token budget for the tree, because we can never take something outside the max token budget anyway), and then run torch.logsumexp to make each logit comparable, then finally sort each row.
+
+Since it’s relatively small and on GPU, it doesn’t take much time to do this compute. It creates 2 vectors: op\_logits (the values), and top\_token\_ids (indices into vocab). We needed to sort so the following sequential steps are much faster.
+
+The code from the official DDTree codebase ([https://github.com/liranringel/ddtree](https://github.com/liranringel/ddtree)) that does this sorting on GPU:
+
+```python
+topk = min(budget, draft_logits.shape[-1]) # this is the amount to sample topK per column  
+depth_limit = int(draft_logits.shape[0]) # this is the horizontal length. cannot go deeper than this anyway  
+logits = draft_logits.float()  
+top_logits, top_token_ids = torch.topk(logits, k=topk, dim=-1)  
+log_z = torch.logsumexp(logits, dim=-1, keepdim=True)
+```
+**Step 2: Copy this over to the CPU**
+
+Next, the GPU sends these values to the CPU. Since the actual tree generation involves building a heap (sequential) and lookup tables, it’s much better suited for the CPU rather than the device/GPU.
+
+The cost of this is that we need to do a device to host synchronization, causing blockcades and transfer costs between CPU and GPU. This is clearly bad, but the DDTree authors outweigh this synchronization to the benefits of the tree. To learn more about this, read this article by @charles https://modal.com/blog/host-overhead-inference-efficiency.
+
+```python
+top_log_probs_cpu = (top_logits - log_z).to(device="cpu", dtype=torch.float32)  
+top_token_ids_cpu = top_token_ids.to(device="cpu", dtype=torch.long)  
+build_subtimes["tree_build_copy"] = cuda_time() - copy_start
+```
+**Step 3: The best-first heap algorithm**
+
+The algorithm will pop the top element in the heap (highest probability cumulative path) so far. Then, add the next highest probability sibling (explore horizontally), and the highest probability child (explore deeper), back into the heap.
+
+> **[Figure placeholder]** Shows both ways vertical and south that the tree will add to the heap
+
+It does this sequentially until it has popped enough elements to reach the node budget.  
+The algorithm guarantees you will capture the highest total expected value. You can read more about the algorithm here: [https://www.geeksforgeeks.org/dsa/best-first-search-informed-search/](https://www.geeksforgeeks.org/dsa/best-first-search-informed-search/), and see an animation of it below.
+
+> **[Figure placeholder]**
+
+```python
+while heap and node_count < budget:  
+    _, ranks, parent_index, depth, rank, logw = heapq.heappop(heap)
+
+    token_id = int(top_token_ids_np[depth - 1, rank])  
+    current_index = node_count + 1  
+    node_token_ids_np[node_count] = token_id  
+    node_depths_np[node_count] = depth  
+    parents_np[current_index] = parent_index  
+    child_maps.append(dict())  
+    child_maps[parent_index][token_id] = current_index  
+    node_count += 1
+
+    if rank + 1 < topk:  
+        sibling_ranks = ranks[:-1] + (rank + 1,)  
+        sibling_logw = logw - float(top_log_probs_np[depth - 1, rank]) + float(top_log_probs_np[depth - 1, rank + 1])  
+        heapq.heappush(heap, (-sibling_logw, sibling_ranks, parent_index, depth, rank + 1, sibling_logw))
+
+    if depth < depth_limit:  
+        child_ranks = ranks + (0,)  
+        child_logw = logw + float(top_log_probs_np[depth, 0])  
+        heapq.heappush(heap, (-child_logw, child_ranks, current_index, depth + 1, 0, child_logw))
+```
+**Step 4: Creating the tree mask**
+
+This part runs through the tree and creates a flattened indexed array that explains what the ancestor of each token is. This becomes useful during the speculative decoding verification step, because the GPU can do a singular fat matrix multiplication instead of many small ones, because it knows exactly what tokens need to be computed relating to what other KV.
+
+```python
+visibility_np = np.zeros((current_length, current_length), dtype=np.bool_)  
+ visibility_np[0, 0] = True  
+ for index in range(1, current_length):  
+     parent_index = int(parents_np[index])  
+     visibility_np[index, :index] = visibility_np[parent_index, :index]  
+     visibility_np[index, index] = True  
+ build_subtimes["tree_build_visibility"] = time.perf_counter() - visibility_start
+```
+Overall DDTree prove-ably has a higher expected accepted tokens (assuming that the drafter's “confidence” per vocab is the expected probability of it being expected), even at a same token budget. However, it comes at a cost of the creation of such a tree, tree mask, CPU host sync overhead, and the weird matmul (jumping around a lot with the tree mask as opposed to a standard attention). DDTree generally is really good for extremely memory bound systems (low batch sizes), but starts to lose due to the overhead at higher batch sizes.
+
+DDTree Paper: [https://arxiv.org/pdf/2604.12989](https://arxiv.org/pdf/2604.12989)
+
+# Understanding DSpark
+
+DSpark brings 2 new contributions to DFlash: first a confidence aware hardware dynamic verification length, and an autoregressive markov model head to align the marginals of DFlash. I’ll quickly explain the former and focus on the latter because it is what we use in SparklingTree.
+
+## Confidence aware, hardware aware dynamic verification
+
+DFlash always drafts the same amount of tokens but also, verifies all of the tokens. This assumes that verification is parallel and free (which it somewhat is). However, at large batch sizes, when balancing compute bound and memory bound, having an infinite amount of tokens to verify eventually comes at compute costs and is no longer free.
+
+To ride the compute bound / memory bound line even closer, DSpark adds 2 components to make the verification dynamic. First, a confidence head that uses the hidden state \+ previous token embedding and squashes it to a probability. They also add a calibration step to normalize against overconfident neural scores. 
+
+While training the DFlash model, the 
+
+## First order markov model conditioning
+
+### Low Rank Factorization
+
+# Building SparklingTree
+
+Host overhead: [https://modal.com/blog/host-overhead-inference-efficiency](https://modal.com/blog/host-overhead-inference-efficiency) by @charles
+
+1. The harness has to be trained together
+
+> **[Figure placeholder]** * note not fully comparable bc block size 7 vs 16
+
+dspark ontop of dflash fails bc not joinly trained
+
+Dspark alone without correction is also bad bc not jointly trained 
+
+2. ## The model is too good
+
+\-- had to retrain for 17 block context length
+
+3. ## Building the full tree is too expensive 
+
+   1. Solved w beam searc  
+   2. Solved w prefetching tree  
+   3. 
+
+Let’s revisit how DSpark creates the tree. 
+
+Tried multiple ways of creating the tree 
+
+We can now make the tree approximated because we have 
+
+My guess is that now, even at higher batch sizes, SparkedTree becomes  
+We didn’t opt for that, the engineering lift would be massive
+
+# Splicing DSpark’s markov head into DDTree
+
+Results  
+
+> **[Figure placeholder]**
+
+# It’s literally too good
+
+Had to increase the generation size
+
+I’ve learned a lot about statistics, and how the internals of these speculators actually work. Thanks for reading and would love any feedback\!\!
+*/ }),
+  },
 ];

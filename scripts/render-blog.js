@@ -150,39 +150,47 @@ const preprocessPostMarkdown = (markdown = "", post = {}) => {
 const getArticleUrl = () =>
   `${window.location.origin}${window.location.pathname}${window.location.search}`;
 
-const buildAiPrompt = (post, url) => {
-  const header =
-    `I'm reading this JW Labs research article and I'd like your help ` +
-    `understanding and discussing it.\n\n` +
-    `Title: ${post.title}\n` +
-    `Link: ${url}\n`;
-
-  // Keep the resulting URL comfortably short. Short posts get the full text
-  // inline; long ones fall back to the link plus summary so the target site
-  // never rejects an over-length query string.
-  const SAFE_INLINE_LENGTH = 6000;
-
-  if (post.markdown && post.markdown.length <= SAFE_INLINE_LENGTH) {
-    return `${header}\nHere is the full article for context:\n\n${post.markdown}`;
-  }
-
+// A short prompt that points the model at the public article and asks it to
+// read the page itself. Keeps the resulting URL small enough that every target
+// accepts it (ChatGPT silently drops an over-long `?q=`).
+const buildLinkPrompt = (post, url) => {
   const summary = post.summary ? `\nSummary: ${post.summary}\n` : "";
 
   return (
-    `${header}${summary}\n` +
+    `I'm reading this JW Labs research article and I'd like your help ` +
+    `understanding and discussing it.\n\n` +
+    `Title: ${post.title}\n` +
+    `Link: ${url}\n${summary}\n` +
     `Please open the link above to read the full article, then help me ` +
     `discuss it and answer my questions.`
   );
 };
 
+// A richer prompt with the full article text inlined, for targets that tolerate
+// long query strings (Claude). Falls back to the link prompt for long articles.
+const buildInlinePrompt = (post, url) => {
+  const SAFE_INLINE_LENGTH = 6000;
+
+  if (!post.markdown || post.markdown.length > SAFE_INLINE_LENGTH) {
+    return buildLinkPrompt(post, url);
+  }
+
+  return (
+    `I'm reading this JW Labs research article and I'd like your help ` +
+    `understanding and discussing it.\n\n` +
+    `Title: ${post.title}\n` +
+    `Link: ${url}\n\n` +
+    `Here is the full article for context:\n\n${post.markdown}`
+  );
+};
+
 const AI_TARGETS = [
-  { label: "Claude", base: "https://claude.ai/new" },
-  { label: "ChatGPT", base: "https://chatgpt.com/" },
+  { label: "Claude", base: "https://claude.ai/new", buildPrompt: buildInlinePrompt },
+  { label: "ChatGPT", base: "https://chatgpt.com/", buildPrompt: buildLinkPrompt },
 ];
 
 const createAskAiBar = (post) => {
-  const prompt = buildAiPrompt(post, getArticleUrl());
-  const encodedPrompt = encodeURIComponent(prompt);
+  const url = getArticleUrl();
 
   const bar = document.createElement("div");
   bar.className = "ask-ai";
@@ -192,10 +200,10 @@ const createAskAiBar = (post) => {
   label.textContent = "Discuss with";
   bar.append(label);
 
-  AI_TARGETS.forEach(({ label: name, base }) => {
+  AI_TARGETS.forEach(({ label: name, base, buildPrompt }) => {
     const link = document.createElement("a");
     link.className = "ask-ai-link";
-    link.href = `${base}?q=${encodedPrompt}`;
+    link.href = `${base}?q=${encodeURIComponent(buildPrompt(post, url))}`;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.textContent = name;
