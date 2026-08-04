@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="720" height="400" fill="#ffffff"/>
+  <text x="70" y="40" font-size="17" font-weight="600" fill="#1a1a1a">A single chain vs. a tree of drafts</text>
+  <text x="70" y="62" font-size="13" fill="#666666">Branching where the drafter is unsure captures more expected accepted tokens</text>
+
+  <!-- Chain (left) -->
+  <text x="170" y="110" font-size="14" font-weight="600" fill="#1a1a1a" text-anchor="middle">Chain</text>
+  <line x1="170" y1="150" x2="170" y2="180" stroke="#999999" stroke-width="2"/>
+  <line x1="170" y1="210" x2="170" y2="240" stroke="#999999" stroke-width="2"/>
+  <line x1="170" y1="270" x2="170" y2="300" stroke="#999999" stroke-width="2"/>
+  <circle cx="170" cy="140" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="170" cy="200" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="170" cy="260" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="170" cy="320" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <text x="230" y="205" font-size="12" fill="#666666">deep, but one guess</text>
+  <text x="230" y="222" font-size="12" fill="#666666">per position</text>
+
+  <!-- Tree (right) -->
+  <text x="520" y="110" font-size="14" font-weight="600" fill="#1a1a1a" text-anchor="middle">Tree</text>
+  <!-- edges -->
+  <line x1="520" y1="150" x2="520" y2="180" stroke="#999999" stroke-width="2"/>
+  <line x1="520" y1="210" x2="460" y2="245" stroke="#999999" stroke-width="2"/>
+  <line x1="520" y1="210" x2="580" y2="245" stroke="#999999" stroke-width="2"/>
+  <line x1="460" y1="270" x2="430" y2="300" stroke="#999999" stroke-width="2"/>
+  <line x1="460" y1="270" x2="490" y2="300" stroke="#999999" stroke-width="2"/>
+  <line x1="580" y1="270" x2="580" y2="300" stroke="#999999" stroke-width="2"/>
+  <!-- nodes -->
+  <circle cx="520" cy="140" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="520" cy="200" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="460" cy="260" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="580" cy="260" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="430" cy="316" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="490" cy="316" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <circle cx="580" cy="316" r="16" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2"/>
+  <text x="360" y="336" font-size="12" fill="#666666" text-anchor="end">shallower,</text>
+  <text x="360" y="353" font-size="12" fill="#666666" text-anchor="end">many guesses</text>
+</svg>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="720" height="400" fill="#ffffff"/>
+  <text x="70" y="40" font-size="17" font-weight="600" fill="#1a1a1a">Eagle3 vs. DFlash (illustrative)</text>
+  <text x="70" y="62" font-size="13" fill="#666666">DFlash trades a lower per-token accept rate for a far longer draft block</text>
+
+  <!-- Panel 1: tokens drafted per step -->
+  <text x="190" y="110" font-size="14" font-weight="600" fill="#1a1a1a" text-anchor="middle">Tokens drafted / step</text>
+  <line x1="70" y1="330" x2="320" y2="330" stroke="#cccccc" stroke-width="1.5"/>
+  <rect x="110" y="290" width="60" height="40" fill="#999999"/>
+  <text x="140" y="352" font-size="12" fill="#666666" text-anchor="middle">Eagle3</text>
+  <text x="140" y="282" font-size="12" fill="#666666" text-anchor="middle">3</text>
+  <rect x="220" y="130" width="60" height="200" fill="#2f6f9f"/>
+  <text x="250" y="352" font-size="12" fill="#666666" text-anchor="middle">DFlash</text>
+  <text x="250" y="122" font-size="12" fill="#666666" text-anchor="middle">15</text>
+
+  <!-- Panel 2: per-token acceptance rate -->
+  <text x="530" y="110" font-size="14" font-weight="600" fill="#1a1a1a" text-anchor="middle">Per-token accept rate</text>
+  <line x1="410" y1="330" x2="660" y2="330" stroke="#cccccc" stroke-width="1.5"/>
+  <rect x="450" y="160" width="60" height="170" fill="#999999"/>
+  <text x="480" y="352" font-size="12" fill="#666666" text-anchor="middle">Eagle3</text>
+  <text x="480" y="152" font-size="12" fill="#666666" text-anchor="middle">high</text>
+  <rect x="560" y="240" width="60" height="90" fill="#2f6f9f"/>
+  <text x="590" y="352" font-size="12" fill="#666666" text-anchor="middle">DFlash</text>
+  <text x="590" y="232" font-size="12" fill="#666666" text-anchor="middle">lower</text>
+</svg>

@@ -349,6 +349,8 @@ const createCodeBlock = (lines, language = "") => {
 
   if (language) {
     code.dataset.language = language;
+    // highlight.js reads the language-* class to pick a grammar
+    code.className = `language-${language}`;
   }
 
   code.textContent = lines.join("\n");
@@ -893,6 +895,29 @@ const renderArticlePage = () => {
   postRoot.append(postNode);
   buildTableOfContents(postRoot);
   renderMathInPost(postRoot);
+  highlightCodeInPost(postRoot);
+};
+
+const highlightCodeInPost = (root) => {
+  const codeBlocks = root.querySelectorAll("pre code[data-language]");
+
+  if (codeBlocks.length === 0) {
+    return;
+  }
+
+  // highlight.js is deferred, so it may not be ready yet on first paint.
+  const run = () => {
+    if (typeof window.hljs?.highlightElement !== "function") {
+      return false;
+    }
+
+    codeBlocks.forEach((block) => window.hljs.highlightElement(block));
+    return true;
+  };
+
+  if (!run()) {
+    window.addEventListener("load", run, { once: true });
+  }
 };
 
 const renderMathInPost = (root) => {

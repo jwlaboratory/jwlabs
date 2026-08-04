@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" width="720" height="340" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="720" height="340" fill="#ffffff"/>
+  <text x="70" y="40" font-size="17" font-weight="600" fill="#1a1a1a">What each heap pop pushes back</text>
+  <text x="70" y="62" font-size="13" fill="#666666">Pop the best path so far, then push its next-best sibling and its best child</text>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#666666"/>
+    </marker>
+  </defs>
+
+  <!-- popped node -->
+  <circle cx="230" cy="180" r="26" fill="#eef2f6" stroke="#2f6f9f" stroke-width="2.5"/>
+  <text x="230" y="185" font-size="13" fill="#1a1a1a" text-anchor="middle">popped</text>
+
+  <!-- sibling: horizontal -->
+  <line x1="262" y1="180" x2="410" y2="180" stroke="#666666" stroke-width="2" marker-end="url(#arrow)"/>
+  <circle cx="450" cy="180" r="26" fill="#f6f1ee" stroke="#c65b3c" stroke-width="2.5"/>
+  <text x="450" y="177" font-size="12" fill="#1a1a1a" text-anchor="middle">sibling</text>
+  <text x="450" y="192" font-size="10" fill="#666666" text-anchor="middle">next rank</text>
+  <text x="336" y="168" font-size="12" fill="#666666" text-anchor="middle">explore wider</text>
+
+  <!-- child: vertical -->
+  <line x1="230" y1="212" x2="230" y2="270" stroke="#666666" stroke-width="2" marker-end="url(#arrow)"/>
+  <circle cx="230" cy="300" r="26" fill="#f6f1ee" stroke="#c65b3c" stroke-width="2.5"/>
+  <text x="230" y="297" font-size="12" fill="#1a1a1a" text-anchor="middle">child</text>
+  <text x="230" y="312" font-size="10" fill="#666666" text-anchor="middle">depth + 1</text>
+  <text x="330" y="250" font-size="12" fill="#666666">explore deeper</text>
+</svg>

@@ -526,6 +526,12 @@ body[data-page="article"] .site-footer {
   line-height: 1.5;
 }
 
+/* keep highlight.js theme colors but let our code-block background show through */
+.blog-content pre code.hljs {
+  padding: 0;
+  background: transparent;
+}
+
 .blog-content .code-block {
   --code-font-size: 13px;
   --code-line-height: 1.5;
