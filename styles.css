@@ -347,6 +347,35 @@ body[data-page="article"] .site-footer {
   content: "";
 }
 
+.ask-ai {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -12px 0 28px;
+  font-size: 13px;
+  max-width: var(--article-max-width);
+}
+
+.ask-ai-label {
+  color: var(--muted);
+}
+
+.ask-ai-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.ask-ai-link:hover {
+  border-color: var(--text);
+}
+
 #abstract,
 .blog-abstract {
   margin-bottom: 24px;

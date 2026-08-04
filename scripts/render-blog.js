@@ -147,6 +147,64 @@ const preprocessPostMarkdown = (markdown = "", post = {}) => {
   };
 };
 
+const getArticleUrl = () =>
+  `${window.location.origin}${window.location.pathname}${window.location.search}`;
+
+const buildAiPrompt = (post, url) => {
+  const header =
+    `I'm reading this JW Labs research article and I'd like your help ` +
+    `understanding and discussing it.\n\n` +
+    `Title: ${post.title}\n` +
+    `Link: ${url}\n`;
+
+  // Keep the resulting URL comfortably short. Short posts get the full text
+  // inline; long ones fall back to the link plus summary so the target site
+  // never rejects an over-length query string.
+  const SAFE_INLINE_LENGTH = 6000;
+
+  if (post.markdown && post.markdown.length <= SAFE_INLINE_LENGTH) {
+    return `${header}\nHere is the full article for context:\n\n${post.markdown}`;
+  }
+
+  const summary = post.summary ? `\nSummary: ${post.summary}\n` : "";
+
+  return (
+    `${header}${summary}\n` +
+    `Please open the link above to read the full article, then help me ` +
+    `discuss it and answer my questions.`
+  );
+};
+
+const AI_TARGETS = [
+  { label: "Claude", base: "https://claude.ai/new" },
+  { label: "ChatGPT", base: "https://chatgpt.com/" },
+];
+
+const createAskAiBar = (post) => {
+  const prompt = buildAiPrompt(post, getArticleUrl());
+  const encodedPrompt = encodeURIComponent(prompt);
+
+  const bar = document.createElement("div");
+  bar.className = "ask-ai";
+
+  const label = document.createElement("span");
+  label.className = "ask-ai-label";
+  label.textContent = "Discuss with";
+  bar.append(label);
+
+  AI_TARGETS.forEach(({ label: name, base }) => {
+    const link = document.createElement("a");
+    link.className = "ask-ai-link";
+    link.href = `${base}?q=${encodedPrompt}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = name;
+    bar.append(link);
+  });
+
+  return bar;
+};
+
 const appendAuthorsWithLinks = (root, authorsText) => {
   const linkable = (window.AUTHORS ?? []).filter(
     (author) => author.email || author.github || author.x,
@@ -806,6 +864,8 @@ const renderArticlePage = () => {
     authorNode.remove();
     metadata.hidden = false;
   }
+
+  metadata.after(createAskAiBar(post));
 
   const abstractNode = postNode.querySelector("#abstract");
 
