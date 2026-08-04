@@ -2132,7 +2132,7 @@ Now, DSpark uses the output of DFlash, selects the top token at index 0, runs th
 
 The DSpark paper shows an interesting insight. The chart below (taken from the DSpark paper) shows the per-position probability of acceptance. Note that this is not the cumulative probability, but the probability that position $i$ is accepted given that position $i-1$ was accepted.
 
-![Per-position conditional acceptance from the DSpark paper: Eagle3 climbs over positions, DFlash falls off a cliff, DSpark stays flat.](/content/sparklingtree/dspark-per-position.png)
+![DFlash decreases in conditional acceptance over time, while Eagle3 increases due to autoregressiveness. DSpark is able to maintain a consistent acceptance rate by adding a tiny autoregressive head on top of DFlash.](/content/sparklingtree/dspark-per-position.png)
 
 Here, especially in chat domains, we see that Eagle3 (autoregressive) is able to *increase* its acceptance probability over the positions. This is counterintuitive, but it's because if the autoregressive model finds its groove, it's likely to keep getting better over time. On the other hand, DFlash drops off a cliff over time, because the parallel diffusion model has the interference we discussed earlier. DSpark maintains a flat conditional acceptance by adding the lightweight autoregressive head.
 
@@ -2149,7 +2149,7 @@ The rough outline for our initial naive SparklingTree is as follows:
 
 We validated the idea by graphing the per-depth acceptance, now with SparklingTree included:
 
-![Per-depth acceptance (avg across datasets): SparklingTree keeps DDTree's high early acceptance without its deep-depth collapse.](/content/sparklingtree/results-1.png)
+![The per-depth acceptance rate shows how DDTree starts high whilst DSpark is able to maintain more consistency compared to DFlash/DDTree. SparklingTree shows flat-ish + a high starting acceptance rate.](/content/sparklingtree/results-1.png)
 
 DDTree starts at an extremely high acceptance rate, because it can hedge with multiple shallow branches early, rather than go down one path that might be wrong entirely — just as we predicted. On the other hand, DSpark starts lower, but because it has an autoregressive biaser, it stays steady (on sequences in which it starts correct, it is likely to continue being correct), while DDTree dips hard.
 
@@ -2159,7 +2159,7 @@ SparklingTree takes the best of both worlds. It starts high due to the hedging a
 
 We next compare the acceptance lengths of the different models:
 
-![Acceptance length by method: DDTree-b16 at 7.29, SparklingTree-block7 at 6.59, DFlash-b16 at 5.40, DSpark-b7 at 5.32.](/content/sparklingtree/results-2-acceptance-length.png)
+![SparklingTree improves on DSpark and DFlash but loses to DDTree (note the difference in block size).](/content/sparklingtree/results-2-acceptance-length.png)
 
 Here it seems that DDTree beats SparklingTree, but look closer: DSpark-b7 and SparklingTree-block7 are block size 7 models, compared to the block 15 models for DDTree and DFlash. This means DFlash is drafting 15 tokens at once, while DSpark is drafting only 7 — and SparklingTree is almost hitting the max ceiling at 6.59. You'll also see that the markov model + tree applied to DSpark leads to a **+23.9%** gain.
 
@@ -2198,6 +2198,8 @@ The training recipe: `experiment2-block16/training/` in the [sparkling-tree repo
 We ran the algorithm using the DDTree benchmarking script and were surprised to see terrible speeds for the SparklingTree algorithm.
 
 ![SparklingTree b16 performs terribly with extremely low decode TPS: 21 tokens/sec versus 191 for DDTree, 137 for DSpark, and 124 for DFlash (tree budget 64).](/content/sparklingtree/results-6-decode-speeds.png)
+
+But why does it do so poorly? Clearly SparklingTree is accepting many more tokens. Investigating the time breakdown shows the story more completely:
 
 ![Phase shares of decode wall clock (tree budget 64): for the other methods verify dominates, but for SparklingTree b16 candidate_build takes 89% of the time at 43 ms/token.](/content/sparklingtree/results-7-phase-shares.png)
 
