@@ -1,6 +1,9 @@
 {
+  "functions": {
+    "api/markdown.js": { "includeFiles": "content/blogs.js" }
+  },
   "rewrites": [
     { "source": "/post/:slug", "destination": "/post.html" },
-    { "source": "/markdown/:slug", "destination": "/markdown.html" }
+    { "source": "/markdown/:slug", "destination": "/api/markdown?id=:slug" }
   ]
 }

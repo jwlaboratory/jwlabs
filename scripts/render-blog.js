@@ -147,34 +147,35 @@ const preprocessPostMarkdown = (markdown = "", post = {}) => {
   };
 };
 
-const getArticleUrl = () =>
-  `${window.location.origin}${window.location.pathname}${window.location.search}`;
+// Raw-text markdown endpoint for a post. Articles render client-side, so
+// pointing a model at /post/<slug> gives it an empty shell; this URL returns
+// the actual article text, so any model can read it reliably.
+const getMarkdownUrl = (post) =>
+  `${window.location.origin}/markdown/${encodeURIComponent(getPostId(post))}`;
 
-// A minimal prompt: just point the model at the public article and ask it to
-// open and read the page itself. No summary, so the resulting `?q=` stays short
-// enough that ChatGPT never drops it for being over-length.
-const buildLinkPrompt = (post, url) => {
+// Point the model at the raw-markdown endpoint and ask it to read that. Short
+// and reliable — no article text stuffed into the query string.
+const buildLinkPrompt = (post) => {
   return (
-    `Please open and read this JW Labs research article, then help me ` +
-    `understand and discuss it: ${url}\n\n` +
+    `Please open and read this JW Labs research article (raw markdown), then ` +
+    `help me understand and discuss it: ${getMarkdownUrl(post)}\n\n` +
     `Title: ${post.title}`
   );
 };
 
 // A richer prompt with the full article text inlined, for targets that tolerate
 // long query strings (Claude). Falls back to the link prompt for long articles.
-const buildInlinePrompt = (post, url) => {
+const buildInlinePrompt = (post) => {
   const SAFE_INLINE_LENGTH = 6000;
 
   if (!post.markdown || post.markdown.length > SAFE_INLINE_LENGTH) {
-    return buildLinkPrompt(post, url);
+    return buildLinkPrompt(post);
   }
 
   return (
     `I'm reading this JW Labs research article and I'd like your help ` +
     `understanding and discussing it.\n\n` +
-    `Title: ${post.title}\n` +
-    `Link: ${url}\n\n` +
+    `Title: ${post.title}\n\n` +
     `Here is the full article for context:\n\n${post.markdown}`
   );
 };
@@ -185,8 +186,6 @@ const AI_TARGETS = [
 ];
 
 const createAskAiBar = (post) => {
-  const url = getArticleUrl();
-
   const bar = document.createElement("div");
   bar.className = "ask-ai";
 
@@ -198,18 +197,17 @@ const createAskAiBar = (post) => {
   AI_TARGETS.forEach(({ label: name, base, buildPrompt }) => {
     const link = document.createElement("a");
     link.className = "ask-ai-link";
-    link.href = `${base}?q=${encodeURIComponent(buildPrompt(post, url))}`;
+    link.href = `${base}?q=${encodeURIComponent(buildPrompt(post))}`;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.textContent = name;
     bar.append(link);
   });
 
-  // Raw-markdown page: the reliable fallback — copy/paste the full article into
-  // any model, no URL-length limits.
+  // Raw-markdown endpoint: plain text, readable by any model or by hand.
   const markdownLink = document.createElement("a");
   markdownLink.className = "ask-ai-link ask-ai-link-alt";
-  markdownLink.href = `/markdown.html?id=${encodeURIComponent(getPostId(post))}`;
+  markdownLink.href = getMarkdownUrl(post);
   markdownLink.target = "_blank";
   markdownLink.rel = "noopener noreferrer";
   markdownLink.textContent = "Open markdown";
