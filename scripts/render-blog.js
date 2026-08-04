@@ -213,8 +213,6 @@ const createAskAiBar = (post) => {
   markdownLink.textContent = "Open markdown";
   bar.append(markdownLink);
 
-  bar.append(createShareButton(post));
-
   return bar;
 };
 
@@ -223,20 +221,31 @@ const createAskAiBar = (post) => {
 const getShareUrl = (post) =>
   `${window.location.origin}/post/${encodeURIComponent(getPostId(post))}`;
 
+const SHARE_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" ' +
+  'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true">' +
+  '<circle cx="18" cy="5" r="3"></circle>' +
+  '<circle cx="6" cy="12" r="3"></circle>' +
+  '<circle cx="18" cy="19" r="3"></circle>' +
+  '<line x1="8.6" y1="10.5" x2="15.4" y2="6.5"></line>' +
+  '<line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line>' +
+  "</svg>";
+
 const createShareButton = (post) => {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "ask-ai-link ask-ai-share";
-  button.textContent = "Copy link";
+  button.className = "share-button";
+  button.title = "Copy link to this post";
+  button.setAttribute("aria-label", "Copy link to this post");
+  button.innerHTML = SHARE_ICON_SVG;
 
   let resetTimer = null;
 
   const showCopied = () => {
-    button.textContent = "Copied!";
     button.classList.add("is-copied");
     window.clearTimeout(resetTimer);
     resetTimer = window.setTimeout(() => {
-      button.textContent = "Copy link";
       button.classList.remove("is-copied");
     }, 2000);
   };
@@ -920,6 +929,7 @@ const renderArticlePage = () => {
   const postNode = template.content.cloneNode(true);
 
   postNode.querySelector(".blog-title").textContent = post.title;
+  postNode.querySelector(".blog-header").append(createShareButton(post));
 
   const metadata = postNode.querySelector(".blogmetadata");
   const dateNode = postNode.querySelector(".blog-date");

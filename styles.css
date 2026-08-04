@@ -306,8 +306,55 @@ body[data-page="article"] .site-footer {
 }
 
 .blog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 0;
   max-width: var(--article-max-width);
+}
+
+.share-button {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-top: 2px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.share-button:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.share-button.is-copied {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.share-button.is-copied::after {
+  content: "Copied";
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 8px);
+  transform: translateY(-50%);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--background, #fff);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .blog-header h1,
@@ -378,17 +425,6 @@ body[data-page="article"] .site-footer {
 
 .ask-ai-link-alt {
   color: var(--muted);
-}
-
-.ask-ai-share {
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-
-.ask-ai-share.is-copied {
-  border-color: var(--text);
-  color: var(--text);
 }
 
 #abstract,
