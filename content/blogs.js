@@ -2195,9 +2195,13 @@ The training recipe: `experiment2-block16/training/` in the [sparkling-tree repo
 
 ## Measuring the wall clock speedup
 
-> **[Draft section — in progress]** The writeup for this section is still being finalized.
+We ran the algorithm using the DDTree benchmarking script and were surprised to see terrible speeds for the SparklingTree algorithm.
 
-### Building the full tree is too expensive
+![SparklingTree b16 performs terribly with extremely low decode TPS: 21 tokens/sec versus 191 for DDTree, 137 for DSpark, and 124 for DFlash (tree budget 64).](/content/sparklingtree/results-6-decode-speeds.png)
+
+![Phase shares of decode wall clock (tree budget 64): for the other methods verify dominates, but for SparklingTree b16 candidate_build takes 89% of the time at 43 ms/token.](/content/sparklingtree/results-7-phase-shares.png)
+
+> **[Draft section — in progress]** The fixes below are still being written up.
 
 The markov head makes tree construction sequential, so building the full DDTree-style tree on top of it is costly. We explored:
 
