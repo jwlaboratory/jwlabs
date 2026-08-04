@@ -1933,6 +1933,7 @@ python3 3-workload/generate/generate_combined_dataset.py \
     category: "Research",
     status: "In Progress",
     hidden: true,
+    authors: "Shrey Birmiwal",
     summary: "DFlash is a speculative decoding method that uses a parallel diffusion draft model, creating independent marginals. DDTree built on this by adding tree based verification to try multiple branches at once. DSpark improved on DFlash by adding an autoregressive markov head to condition the diffusion draft outputs. SparklingTree combined DFlash, DSpark, and DDTree by creating a tree that is conditioned using a markov model and shows frontier speedups.",
     markdown: markdown(() => { /*
 # SparklingTree: 19% faster SOTA speculative decoding by combining first-order markov correction (DSpark) and DDTree (tree based block diffusion draft speculative decoding) \+ a hitchhikers guide to DSpark, DDtree, and DFlash
