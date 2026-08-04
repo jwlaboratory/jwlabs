@@ -8,5 +8,10 @@ window.AUTHORS = [
     github: "shreybirmiwal",
     x: "shreybirmiwal",
   },
-  { name: "Anish Bhat" },
+  { 
+    name: "Anish Bhat",
+    email: "anish.bhat07@gmail.com",
+    github: "anishbhat28",
+    x: "AnishBhat07",
+  },
 ];
