@@ -1928,17 +1928,15 @@ python3 3-workload/generate/generate_combined_dataset.py \
   },
   {
     slug: "sparklingtree",
-    title: "SparklingTree: 19% faster SOTA speculative decoding",
-    date: "2026-08-04",
+    title: "SparklingTree: 30-40% faster speculative decoding over DSpark",
+    date: "2026-08-05",
     category: "Research",
-    status: "In Progress",
-    hidden: true,
     authors: "Shrey Birmiwal",
-    summary: "By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a frontier speculator called SparklingTree. It takes the best of both worlds: the high early acceptance of tree drafting and the depth-stable acceptance of markov conditioning.",
+    summary: "By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a speculator called SparklingTree. SparklingTree has a +32.7% increase in acceptance at budget 64 (+31.2% wall clock speedup), and +47.4% acceptance at budget 256 (+43.9% wall clock).",
     markdown: markdown(() => { /*
-# SparklingTree: 19% faster SOTA speculative decoding
+# SparklingTree: 30-40% faster speculative decoding over DSpark
 
-TLDR: By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a frontier speculator called SparklingTree.
+TLDR: By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a speculator called SparklingTree. SparklingTree has a +32.7% increase in acceptance at budget 64 (+31.2% wall clock speedup), and +47.4% acceptance at budget 256 (+43.9% wall clock).
 
 GitHub: [jwlaboratory/sparkling-tree](https://github.com/jwlaboratory/sparkling-tree)
 
@@ -2250,25 +2248,65 @@ We cannot go back and forth from CPU to GPU at each step. This means we can't ju
 
 The way we explore cutting this down is by running the top-k over all indexes immediately after the diffusion drafter is done (on GPU), before sending anything to the CPU. This could be lossy, because the markov bias is additive, so a token outside the base top-k could have been promoted into the true biased top-k that was excluded. It still captures ~99% because the bias is relatively small, so if we capture enough of a top-k (a few thousand instead of the 100k+ vocabulary size), we can practically cover it all.
 
-We see a nearly 9× speedup by sending only the top-k of k=256 at node budget 128:
+We see a nearly 10× speedup by sending only the top-k of k=128 at node budget 64:
 
-![An 8.9× speedup (17 → 155 tokens/sec) without changing the acceptance rate, by transferring only the top 256 candidates to CPU.](/content/sparklingtree/results-8-topk-transfer.png)
+![A 9.73× speedup (25 → 241 tokens/sec) by transferring only the top 128 candidates to CPU instead of the full 311 MB vocab slice.](/content/sparklingtree/results-8-topk-transfer.png)
 
 Surprisingly, BOTH the time to send the candidates to CPU (expected to decrease, because we send only a fraction of the full vocab size) AND the expansion time to create the heap (an unexpected side benefit) decreased significantly. The reason is that with a lower vocab size, the sorting and selecting task for the CPU becomes drastically faster as well.
 
-![The prep time (sending over the candidates to CPU) AND the expansion (heap building) time collapse drastically: 453 → 50 ms/round, a 98% candidate-build cut.](/content/sparklingtree/results-9-prep-collapse.png)
+![The prep time (sending over the candidates to CPU) AND the expansion (heap building) time collapse drastically.](/content/sparklingtree/results-9-prep-collapse.png)
 
 **2. Doing repeated compute on CPU (particularly in the loop of expanding the tree)**
 
-When we were working with DDTree, we could do the compute of top-k all as one batched matmul on the GPU beforehand, because of the independence between indexes. Now, we have to do N small sorts all on CPU. (Multiple small operations, and on CPU, is not good.)
+When we were working with DDTree, we could do the computation of top-k all as one batched matmul on the GPU beforehand, because of the independence between indexes. Now, we have to do N small sorts all on CPU. (Multiple small serial operations, and on CPU, is not good.)
 
-We need a way to be able to precompute as much of the iterative work in a single batch beforehand. The answer: precompute the markov arithmetic as one upfront batched matmul, and turn every per-pop computation into a table lookup.
+We need a way to be able to precompute as much of the iterative work in a single batch beforehand. The precompute insight: a node at depth *d* can only ever hold a token from the candidate set — so the **complete set of transitions the walk could ever ask for is finite**, and we can compute all of it in one batched matmul *before* the walk. The heap walk then becomes pure array lookup: no matmul, no softmax, nothing but reads.
 
-![Precompute vs the transfer-less best (budget 128, top-K=256): one upfront matmul + table lookup gives 1.15× TPS (155 → 179 tokens/sec) at a −3.9% acceptance cost.](/content/sparklingtree/results-10-precompute-tps.png)
+![A 1.16× speedup (241 → 278 tokens/sec) by precomputing all the tree possibilities, with acceptance unchanged.](/content/sparklingtree/results-10-precompute-tps.png)
 
-![Precompute drives the expansion time from 8.7 → 0.27 ms/round (total 50 → 42 ms, 17% faster per round).](/content/sparklingtree/results-11-precompute-breakdown.png)
+Even though we see a slight increase in the prep time (more compute upfront), the expansion (heap creation time) disappears almost entirely.
+
+![Increase in candidate prep, sharp decrease in candidate expand.](/content/sparklingtree/results-11-precompute-breakdown.png)
+
+When comparing our final engineering results with DDTree, we see we are extremely competitive (and still leave room on the table for more work, i.e. fused kernels, beam search):
+
+| Candidate construction (ms/round, budget 64, sync-on) | DDTree | SparklingTree |
+| :---- | :---- | :---- |
+| GPU table + one transfer (".prep") | 0.26 | 1.21 |
+| CPU heap walk (".expand") | 0.12 | 0.15 |
+| visibility mask | 0.04 | 0.04 |
+| total candidate_build | ~0.5 | ~1.4 |
 
 # Conclusion and results
+
+Using the DDTree paper benchmarking scripts (their setup of sync timing and their C++ KV compaction kernel enabled), we compare autoregressive, DFlash, DSpark, DDTree, and SparklingTree on six datasets spanning code (humaneval, mbpp), math (gsm8k, math500), and chat (mt-bench, alpaca), using a fresh random sample draw, 512-token generations, tree budgets {64, 128, 256}, greedy (temp 0) and sampling (temp 1.0), one H100, and all jobs on the same Modal GPU.
+
+At node budget 64 and a top-k C=128, the results show SparklingTree at a 7.34 mean acceptance (+634% over autoregressive, +43.92% over DFlash, +32.73% over DSpark, +7.00% over DDTree), and a wall clock speedup of 4.29× (+329.62% over autoregressive, +36.31% over DFlash, +31.18% over DSpark, and +4.20% over DDTree).
+
+![Final results at budget 64 (C=128, fanout 64, sync-on, one GPU, 6 datasets): SparklingTree leads at 4.29× speedup vs autoregressive and 7.34 mean acceptance.](/content/sparklingtree/results-12-final-budget64.png)
+
+| budget 64 | mean acceptance | tok/s | speedup vs AR |
+| :---- | ----: | ----: | ----: |
+| Autoregressive | 1.00 | 52.0 | 1.00× |
+| DFlash | 5.10 | 163.9 | 3.15× |
+| DSpark | 5.53 | 170.3 | 3.27× |
+| DDTree | 6.86 | 214.4 | 4.12× |
+| SparklingTree | 7.34 | 223.4 | 4.29× |
+
+At each domain, you can see SparklingTree generally edges out other methods, except for DDTree in hard domains such as math and coding:
+
+![Per-domain decode throughput at budget 64: SparklingTree wins alpaca, gsm8k, humaneval, and mt-bench; DDTree wins math500 and mbpp.](/content/sparklingtree/results-13-per-domain.png)
+
+Perhaps this may be due to our training of the markov model at block size 16 on PerfectBlend. Definitely room to improve the markov model and the overall base DSpark model for block size 16.
+
+Overall, over DSpark, we show huge gains in both speedups and acceptance:
+
+| method | acceptance (tok/round) | decode tok/s | speedup vs AR |
+| :---- | ----: | ----: | ----: |
+| DSpark (chain, markov) | 5.53 | 170.3 | 3.27× |
+| **SparklingTree, budget 64** | **7.34 (+33%)** | **223.4 (+31%)** | **4.29×** |
+| **SparklingTree, budget 128** | **7.73 (+40%)** | **238.3 (+40%)** | **4.58×** |
+| **SparklingTree, budget 256** | **8.15 (+47%)** | **245 (+44%)** | **4.71×** |
 
 ## Future Ideas
 
