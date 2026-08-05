@@ -2155,17 +2155,17 @@ DDTree starts at an extremely high acceptance rate, because it can hedge with mu
 
 SparklingTree takes the best of both worlds. It starts high due to the hedging and branching, but also maintains relatively steady throughout depth because of the markov model conditioning.
 
-*Note: DDTree and DFlash are block size 15 drafters, so the graph continues for them, but not for this initial version of SparklingTree or DSpark.*
+*Note: DDTree and DFlash are block size 16 drafters, so the graph continues for them, but not for this initial version of SparklingTree or DSpark.*
 
 We next compare the acceptance lengths of the different models:
 
 ![SparklingTree improves on DSpark and DFlash but loses to DDTree (note the difference in block size).](/content/sparklingtree/results-2-acceptance-length.png)
 
-Here it seems that DDTree beats SparklingTree, but look closer: DSpark-b7 and SparklingTree-block7 are block size 7 models, compared to the block 15 models for DDTree and DFlash. This means DFlash is drafting 15 tokens at once, while DSpark is drafting only 7 — and SparklingTree is almost hitting the max ceiling at 6.59. You'll also see that the markov model + tree applied to DSpark leads to a **+23.9%** gain.
+Here it seems that DDTree beats SparklingTree, but look closer: DSpark-b7 and SparklingTree-block7 are block size 7 models, compared to the block 16 models for DDTree and DFlash. This means DFlash is drafting 15 tokens at once, while DSpark is drafting only 7 — and SparklingTree is almost hitting the max ceiling at 6.59. You'll also see that the markov model + tree applied to DSpark leads to a **+23.9%** gain.
 
 ## The harness must be trained jointly
 
-You may wonder why we did not just use the DFlash model (since it is trained for block size 15) and drop it into the SparklingTree harness (DSpark markov model + tree). While the tree addition alone would work (DDTree works out of the box with DFlash, since it expects marginal probabilities), DSpark's markov model would *not* work.
+You may wonder why we did not just use the DFlash model (since it is trained for block size 16) and drop it into the SparklingTree harness (DSpark markov model + tree). While the tree addition alone would work (DDTree works out of the box with DFlash, since it expects marginal probabilities), DSpark's markov model would *not* work.
 
 The reason for this is that the markov model is trained **jointly** with the diffusion drafter. The objective of training DFlash is to make the top-probability tokens form a coherent sentence matching the target. The objective of training DFlash to work with the DSpark markov model is to train a model that generates probabilities that, *after being corrected*, create a coherent sentence.
 
@@ -2173,7 +2173,7 @@ To prove the point, we took the standard DFlash and added the markov model. We a
 
 ![The model only earns its weight when paired with what it was jointly trained with: DSpark needs both the markov model and the DSpark base, and DFlash gets worse (−16%) with a foreign corrector.](/content/sparklingtree/results-3-joint-training.png)
 
-This gives us our first insight: the harness needs to be trained jointly with the model, or else it's not usable. This also means that for us to properly compare DFlash/DDTree (block size 15) against DSpark/SparklingTree (block size 7, nearly saturated), we'll need to train our own version of DSpark that is jointly trained for block size 15.
+This gives us our first insight: the harness needs to be trained jointly with the model, or else it's not usable. This also means that for us to properly compare DFlash/DDTree (block size 16) against DSpark/SparklingTree (block size 7, nearly saturated), we'll need to train our own version of DSpark that is jointly trained for block size 16.
 
 ## Extending the block size because SparklingTree saturated b=7
 
@@ -2181,11 +2181,11 @@ Like I explained earlier, the DSpark model + markov corrector + tree pushed DSpa
 
 ![The block 7 SparklingTree is literally hitting its ceiling: 58% of b7 rounds land at the cap (gsm8k alone: 95%), versus only 8% at the b16 cap.](/content/sparklingtree/results-4-b7-ceiling.png)
 
-To break past this ceiling, we had to retrain DSpark to work with a block size of 15 (16 max tokens drafted and accepted). Since the starting model, DeepSeek's released `dspark_qwen3_4b_block7` drafter, can be changed to draft 15 blocks with just a setting tweak (it does not change any parameter shapes), it can do block=15 out of the box — it will just perform terribly, because it has never seen training data above block=7.
+To break past this ceiling, we had to retrain DSpark to work with a block size of 15 (16 max tokens drafted and accepted). Since the starting model, DeepSeek's released `dspark_qwen3_4b_block7` drafter, can be changed to draft 16 blocks with just a setting tweak (it does not change any parameter shapes), it can do block=16 out of the box — it will just perform terribly, because it has never seen training data above block=7.
 
 We take the DeepSpec codebase, load in our starting point, then continue training with block size 16 on sequence size 768, 32 anchors per sequence, at 600 steps with 2,400 PerfectBlend chat conversations. We also make sure to continue training the markov head (though it should not matter, since the markov model is position invariant) and the confidence head.
 
-![DSpark finetuned to block size 15 performs the best because it breaks the b=7 ceiling: SparklingTree b16 reaches 8.21 accepted tokens per verifier call (+24% over b7, +52% over DFlash).](/content/sparklingtree/results-5-final-acceptance.png)
+![DSpark finetuned to block size 16 performs the best because it breaks the b=7 ceiling: SparklingTree b16 reaches 8.21 accepted tokens per verifier call (+24% over b7, +52% over DFlash).](/content/sparklingtree/results-5-final-acceptance.png)
 
 The results achieve our goal of smashing the 7 token max limit of DSpark.
 
