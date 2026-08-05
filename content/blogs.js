@@ -2276,6 +2276,8 @@ We need a way to be able to precompute as much of the iterative work in a single
 4. [Beam search](https://en.wikipedia.org/wiki/Beam_search) uses a fixed branching budget and has been shown to work well, instead of a best-first heap. I briefly tried an experiment in [archive-2](https://github.com/jwlaboratory/sparkling-tree/tree/main/archive-2-finding_best-beam). The results are somewhat interesting in that you actually want evenly spread out branches instead of front-loaded or back-loaded. This is space for more exploration.
 
 Thank you very much for reading this! I've definitely learned a lot, from statistics to how the internals of speculators actually work. I'm immensely proud of my work and thankful for the people who've helped me learn this — and for you for reading! I would love any feedback / corrections / discussions!
+
+P.S. This entire project ran on [@modal](https://x.com/modal) — I've burned through over $1k in credits getting these results, and I'm officially tapped out! If anyone at Modal (or elsewhere) wants to sponsor the follow-up experiments above with a compute grant, I would genuinely love to chat.
 */ }),
   },
 ];
