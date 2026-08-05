@@ -2250,21 +2250,23 @@ We cannot go back and forth from CPU to GPU at each step. This means we can't ju
 
 The way we explore cutting this down is by running the top-k over all indexes immediately after the diffusion drafter is done (on GPU), before sending anything to the CPU. This could be lossy, because the markov bias is additive, so a token outside the base top-k could have been promoted into the true biased top-k that was excluded. It still captures ~99% because the bias is relatively small, so if we capture enough of a top-k (a few thousand instead of the 100k+ vocabulary size), we can practically cover it all.
 
-We see a nearly 8× speedup by sending only the top-k of k=256 at node budget 64:
+We see a nearly 9× speedup by sending only the top-k of k=256 at node budget 128:
 
-![An 8× speedup without changing the acceptance rate, by transferring only the top 256 candidates to CPU.](/content/sparklingtree/results-8-topk-transfer.png)
+![An 8.9× speedup (17 → 155 tokens/sec) without changing the acceptance rate, by transferring only the top 256 candidates to CPU.](/content/sparklingtree/results-8-topk-transfer.png)
 
 Surprisingly, BOTH the time to send the candidates to CPU (expected to decrease, because we send only a fraction of the full vocab size) AND the expansion time to create the heap (an unexpected side benefit) decreased significantly. The reason is that with a lower vocab size, the sorting and selecting task for the CPU becomes drastically faster as well.
 
-![The prep time (sending over the candidates to CPU) AND the expansion (heap building) time collapse drastically.](/content/sparklingtree/results-9-prep-collapse.png)
+![The prep time (sending over the candidates to CPU) AND the expansion (heap building) time collapse drastically: 453 → 50 ms/round, a 98% candidate-build cut.](/content/sparklingtree/results-9-prep-collapse.png)
 
 **2. Doing repeated compute on CPU (particularly in the loop of expanding the tree)**
 
 When we were working with DDTree, we could do the compute of top-k all as one batched matmul on the GPU beforehand, because of the independence between indexes. Now, we have to do N small sorts all on CPU. (Multiple small operations, and on CPU, is not good.)
 
-We need a way to be able to precompute as much of the iterative work in a single batch beforehand.
+We need a way to be able to precompute as much of the iterative work in a single batch beforehand. The answer: precompute the markov arithmetic as one upfront batched matmul, and turn every per-pop computation into a table lookup.
 
-> **[Draft section — in progress]** The solution writeup continues from here.
+![Precompute vs the transfer-less best (budget 128, top-K=256): one upfront matmul + table lookup gives 1.15× TPS (155 → 179 tokens/sec) at a −3.9% acceptance cost.](/content/sparklingtree/results-10-precompute-tps.png)
+
+![Precompute drives the expansion time from 8.7 → 0.27 ms/round (total 50 → 42 ms, 17% faster per round).](/content/sparklingtree/results-11-precompute-breakdown.png)
 
 # Conclusion and results
 
