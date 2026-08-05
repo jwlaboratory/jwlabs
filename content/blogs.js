@@ -2240,9 +2240,9 @@ Let's recall how the tree was constructed under DFlash, DDTree, DSpark, and now 
 
 ### Solving the candidate tree construction
 
-Two key culprits are this:
+Two key culprits are hitting us at the same time:
 
-1. We can't move back and forth between GPU and CPU.
+1. Transfer cost between CPU and GPU — we can't move back and forth between the two.
 2. We need to precompute as much as possible.
 
 > **[Draft section — in progress]** The fixes below are still being written up.
