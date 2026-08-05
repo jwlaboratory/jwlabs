@@ -2036,7 +2036,7 @@ build_subtimes["tree_build_copy"] = cuda_time() - copy_start
 
 The algorithm will pop the top element in the heap (highest probability cumulative path) so far. Then, add the next highest probability sibling (explore horizontally), and the highest probability child (explore deeper), back into the heap.
 
-![At each pop, the algorithm takes the next best sibling and the best child — guaranteeing it covers all possible routes incorporating the highest probability paths.](/content/sparklingtree/fig-heap-expansion.png)
+![At each pop, the algorithm takes the next best sibling and the best child, guaranteeing it covers all possible routes incorporating the highest probability paths.](/content/sparklingtree/fig-heap-expansion.png)
 
 It does this sequentially until it has popped enough elements to reach the node budget. The algorithm guarantees you will capture the highest total expected value. You can read more about the algorithm here: [best-first search](https://www.geeksforgeeks.org/dsa/best-first-search-informed-search/).
 
@@ -2151,7 +2151,7 @@ We validated the idea by graphing the per-depth acceptance, now with SparklingTr
 
 Note: we use the [DDTree repository](https://github.com/liranringel/ddtree) and the greedy decoding technique from its benchmarking scripts.
 
-DDTree starts at an extremely high acceptance rate, because it can hedge with multiple shallow branches early, rather than go down one path that might be wrong entirely — just as we predicted. On the other hand, DSpark starts lower, but because it has an autoregressive biaser, it stays steady (on sequences in which it starts correct, it is likely to continue being correct), while DDTree dips hard.
+DDTree starts at an extremely high acceptance rate, because it can hedge with multiple shallow branches early, rather than go down one path that might be wrong entirely, as we predicted. On the other hand, DSpark starts lower, but because it has an autoregressive biaser, it stays steady (on sequences in which it starts correct, it is likely to continue being correct), while DDTree dips hard.
 
 SparklingTree takes the best of both worlds. It starts high due to the hedging and branching, but also maintains relatively steady throughout depth because of the markov model conditioning.
 
@@ -2161,7 +2161,7 @@ We next compare the acceptance lengths of the different models:
 
 ![SparklingTree improves on DSpark and DFlash but loses to DDTree (note the difference in block size).](/content/sparklingtree/results-2-acceptance-length.png)
 
-Here it seems that DDTree beats SparklingTree, but look closer: DSpark-b7 and SparklingTree-block7 are block size 7 models, compared to the block 16 models for DDTree and DFlash. This means DFlash is drafting 15 tokens at once, while DSpark is drafting only 7 — and SparklingTree is almost hitting the max ceiling at 6.59. You'll also see that the markov model + tree applied to DSpark leads to a **+23.9%** gain.
+Here it seems that DDTree beats SparklingTree, but look closer: DSpark-b7 and SparklingTree-block7 are block size 7 models, compared to the block 16 models for DDTree and DFlash. This means DFlash is drafting 15 tokens at once, while DSpark is drafting only 7 (and SparklingTree is almost hitting the max ceiling at 6.59). You'll also see that the markov model + tree applied to DSpark leads to a **+23.9%** gain.
 
 ## The harness must be trained jointly
 
@@ -2181,7 +2181,7 @@ Like I explained earlier, the DSpark model + markov corrector + tree pushed DSpa
 
 ![The block 7 SparklingTree is literally hitting its ceiling: 58% of b7 rounds land at the cap (gsm8k alone: 95%), versus only 8% at the b16 cap.](/content/sparklingtree/results-4-b7-ceiling.png)
 
-To break past this ceiling, we had to retrain DSpark to work with a block size of 15 (16 max tokens drafted and accepted). Since the starting model, DeepSeek's released `dspark_qwen3_4b_block7` drafter, can be changed to draft 16 blocks with just a setting tweak (it does not change any parameter shapes), it can do block=16 out of the box — it will just perform terribly, because it has never seen training data above block=7.
+To break past this ceiling, we had to retrain DSpark to work with a block size of 15 (16 max tokens drafted and accepted). Since the starting model, DeepSeek's released `dspark_qwen3_4b_block7` drafter, can be changed to draft 16 blocks with just a setting tweak (it does not change any parameter shapes), it can do block=16 out of the box, it just performs terribly because it has never seen training data above block=7.
 
 We take the DeepSpec codebase, load in our starting point, then continue training with block size 16 on sequence size 768, 32 anchors per sequence, at 600 steps with 2,400 PerfectBlend chat conversations. We chose this dataset so as to not confound by training on the exact data we would test with. We also make sure to continue training the markov head (though it should not matter, since the markov model is position invariant) and the confidence head.
 
@@ -2216,7 +2216,7 @@ But why does it do so poorly? Clearly SparklingTree is accepting many more token
 
 1. **Draft forward pass:** The time per round is approximately the same. Draft forward is the time it takes for the diffusion draft model to do a forward pass, and it is approximately the same because they all share similar setups (4B-param diffusion drafters each doing one block forward per round). The time per committed token slightly varies (being fastest for SparklingTree) because it differs in accuracy (SparklingTree creates the most committed tokens).
 2. **Candidate tree construction:** **The huge one. Let's get back to this one below.**
-3. **Verification by target model over candidates:** Approximately the same. Of course the tree approaches have more nodes to verify, so it costs slightly more. Nuance 1: at larger batch sizes it is hard to say how this will change — I'm guessing it'll get worse once you pass the tip of the compute-bound ridge. At this point, being extremely memory bound (running batch size 1) under-shows the verification cost being the same (because all nodes are parallelized, and the bottleneck is the memory bandwidth loading in weights). Nuance 2: in MoE models it is hard to say how this will change as well. MoE models have to load in experts, so having more tree nodes to verify may trigger more experts to load in (which is bad, considering you are already memory bound).
+3. **Verification by target model over candidates:** Approximately the same. Of course the tree approaches have more nodes to verify, so it costs slightly more. Nuance 1: at larger batch sizes it is hard to say how this will change. I'm guessing it'll get worse once you pass the tip of the compute-bound ridge. At this point, being extremely memory bound (running batch size 1) under-shows the verification cost being the same (because all nodes are parallelized, and the bottleneck is the memory bandwidth loading in weights). Nuance 2: in MoE models it is hard to say how this will change as well. MoE models have to load in experts, so having more tree nodes to verify may trigger more experts to load in (which is bad, considering you are already memory bound).
 
 ### What the heck is happening with the candidate tree construction?
 
@@ -2226,7 +2226,7 @@ Let's recall how the tree was constructed under DFlash, DDTree, DSpark, and now 
 
 ![DFlash runs the diffusion drafter and samples argmax on GPU.](/content/sparklingtree/fig-build-dflash.png)
 
-2. **DDTree:** The diffusion drafter runs. We take a singular GPU operation to sort the top-k elements in each index (positions are independent, so this can be done upfront). One tiny table is copied over to the CPU, which iteratively builds a heap from this sorted table. The candidate construction is 0.49 ms/round — slower than DFlash due to the CPU working in a loop, but faster than the other speculators.
+2. **DDTree:** The diffusion drafter runs. We take a singular GPU operation to sort the top-k elements in each index (positions are independent, so this can be done upfront). One tiny table is copied over to the CPU, which iteratively builds a heap from this sorted table. The candidate construction is 0.49 ms/round, slower than DFlash due to the CPU working in a loop, but faster than the other speculators.
 
 ![DDTree takes top K once on GPU, then builds a heap quickly on CPU.](/content/sparklingtree/fig-build-ddtree.png)
 
@@ -2234,7 +2234,7 @@ Let's recall how the tree was constructed under DFlash, DDTree, DSpark, and now 
 
 ![DSpark runs the autoregressive head on GPU and samples iteratively.](/content/sparklingtree/fig-build-dspark.png)
 
-4. **SparklingTree:** First, we create the diffusion draft matrix one time. Because the positions are no longer independent (markov model), top-k can no longer be precomputed upfront on the GPU. We have to first copy over the entire matrix to the CPU, which runs the heap algorithm from DDTree in a loop — but with the top-k computation + markov model running EVERY pop, and on CPU. It is by far the slowest at 299.34 ms/round.
+4. **SparklingTree:** First, we create the diffusion draft matrix one time. Because the positions are no longer independent (markov model), top-k can no longer be precomputed upfront on the GPU. We have to first copy over the entire matrix to the CPU, which runs the heap algorithm from DDTree in a loop, but with the top-k computation + markov model running EVERY pop, and on CPU. It is by far the slowest at 299.34 ms/round.
 
 ![SparklingTree has to run heap creation on CPU, with top-k and markov model generation on CPU.](/content/sparklingtree/fig-build-sparklingtree.png)
 
@@ -2250,7 +2250,7 @@ The way we explore cutting this down is by running the top-k over all indexes im
 
 We see a nearly 10× speedup by sending only the top-k of k=128 at node budget 64:
 
-![A 9.73× speedup (25 → 241 tokens/sec) by transferring only the top 128 candidates to CPU instead of the full 311 MB vocab slice.](/content/sparklingtree/results-8-topk-transfer.png)
+![A 9.73× speedup (25 to 241 tokens/sec) by transferring only the top 128 candidates to CPU instead of the full 311 MB vocab slice.](/content/sparklingtree/results-8-topk-transfer.png)
 
 Surprisingly, BOTH the time to send the candidates to CPU (expected to decrease, because we send only a fraction of the full vocab size) AND the expansion time to create the heap (an unexpected side benefit) decreased significantly. The reason is that with a lower vocab size, the sorting and selecting task for the CPU becomes drastically faster as well.
 
@@ -2260,9 +2260,9 @@ Surprisingly, BOTH the time to send the candidates to CPU (expected to decrease,
 
 When we were working with DDTree, we could do the computation of top-k all as one batched matmul on the GPU beforehand, because of the independence between indexes. Now, we have to do N small sorts all on CPU. (Multiple small serial operations, and on CPU, is not good.)
 
-We need a way to be able to precompute as much of the iterative work in a single batch beforehand. The precompute insight: a node at depth *d* can only ever hold a token from the candidate set — so the **complete set of transitions the walk could ever ask for is finite**, and we can compute all of it in one batched matmul *before* the walk. The heap walk then becomes pure array lookup: no matmul, no softmax, nothing but reads.
+We need a way to be able to precompute as much of the iterative work in a single batch beforehand. Since it's only a first order markov model, it only needs to look back one token to determine the delta for the next token. Because of this, we can basically precompute into a table the entire (not low rank 2 multiplies) top-k markov model table upfront on the GPU and calculate the deltas at each depth upfront. Then, the CPU can simply do reads (no need to run the markov model each time or update the deltas and resort).
 
-![A 1.16× speedup (241 → 278 tokens/sec) by precomputing all the tree possibilities, with acceptance unchanged.](/content/sparklingtree/results-10-precompute-tps.png)
+![A 1.16× speedup (241 to 278 tokens/sec) by precomputing all the tree possibilities, with acceptance unchanged.](/content/sparklingtree/results-10-precompute-tps.png)
 
 Even though we see a slight increase in the prep time (more compute upfront), the expansion (heap creation time) disappears almost entirely.
 
@@ -2310,12 +2310,12 @@ Overall, over DSpark, we show huge gains in both speedups and acceptance:
 
 ## Future Ideas
 
-1. We saw that training the markov model jointly with the drafter is absolutely essential — otherwise accuracy collapses. Could it be that the tree should also be jointly baked into the training of the markov model + drafter?
+1. We saw that training the markov model jointly with the drafter is absolutely essential, otherwise accuracy collapses. Could it be that the tree should also be jointly baked into the training of the markov model + drafter?
 2. Similarly, DSpark has a confidence head. This was originally designed for a chain (NOT a tree), but can we still use it to help decide when to stop verification? This could make this project more viable at higher batch sizes. Additionally, how does it perform when it is jointly baked into the training as well? I did some cursory experiments in the [archive-1 folder](https://github.com/jwlaboratory/sparkling-tree/tree/main/archive-1-speedup-w-confidence-head-verification) but didn't spend enough time to tell if this is an interesting direction.
 3. We run benchmarks at batch size 1 because the engineering lift to make this work on an engine like SGLang or vLLM would be too large. We should next try larger batch sizes. We guess that the gains likely diminish rapidly at larger batch sizes. Additionally: trying tensor-parallel GPUs, MoE models (more experts need to be loaded in, doing worse with the tree's extra nodes to verify), and bigger models.
 4. [Beam search](https://en.wikipedia.org/wiki/Beam_search) uses a fixed branching budget and has been shown to work well, instead of a best-first heap. I briefly tried an experiment in [archive-2](https://github.com/jwlaboratory/sparkling-tree/tree/main/archive-2-finding_best-beam). The results are somewhat interesting in that you actually want evenly spread out branches instead of front-loaded or back-loaded. This is space for more exploration.
 
-Thank you very much for reading this! I've definitely learned a lot, from statistics to how the internals of speculators actually work. I'm immensely proud of my work and thankful for the people who've helped me learn this — and for you for reading! I would love any feedback / corrections / discussions!
+Thank you very much for reading this! I've definitely learned a lot, from statistics to how the internals of speculators actually work. I'm immensely proud of my work and thankful for the people who've helped me learn this and for you for reading! I would love any feedback / corrections / discussions!
 
 PS, I've spent > $1k in [@modal](https://x.com/modal) credits to build this and I'm now all out!! I would be super super grateful if anyone at Modal (or anywhere else) would like to help sponsor more open source blogs 🙏👀
 */ }),
