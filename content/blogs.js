@@ -1938,6 +1938,8 @@ python3 3-workload/generate/generate_combined_dataset.py \
 
 TLDR: By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a speculator called SparklingTree. SparklingTree has a +32.7% increase in acceptance at budget 64 (+31.2% wall clock speedup), and +47.4% acceptance at budget 256 (+43.9% wall clock) over DSpark.
 
+![SparklingTree (right) races against DSpark and other speculators, decoding faster.](/content/sparklingtree/race_4way.gif)
+
 GitHub: [jwlaboratory/sparkling-tree](https://github.com/jwlaboratory/sparkling-tree)
 
 # Understanding DFlash
