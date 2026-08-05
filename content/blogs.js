@@ -2250,11 +2250,13 @@ We cannot go back and forth from CPU to GPU at each step. This means we can't ju
 
 The way we explore cutting this down is by running the top-k over all indexes immediately after the diffusion drafter is done (on GPU), before sending anything to the CPU. This could be lossy, because the markov bias is additive, so a token outside the base top-k could have been promoted into the true biased top-k that was excluded. It still captures ~99% because the bias is relatively small, so if we capture enough of a top-k (a few thousand instead of the 100k+ vocabulary size), we can practically cover it all.
 
-![Transferring only the top-k makes SparklingTree b16 6.8× faster at budget 64, with acceptance unchanged (+2.0%).](/content/sparklingtree/results-8-topk-transfer.png)
+We see a nearly 8× speedup by sending only the top-k of k=256 at node budget 64:
 
-At budget 64 and a top-k of 2048, we get:
+![An 8× speedup without changing the acceptance rate, by transferring only the top 256 candidates to CPU.](/content/sparklingtree/results-8-topk-transfer.png)
 
-![The prep time (sending over the candidates to CPU) collapses drastically.](/content/sparklingtree/results-9-prep-collapse.png)
+Surprisingly, BOTH the time to send the candidates to CPU (expected to decrease, because we send only a fraction of the full vocab size) AND the expansion time to create the heap (an unexpected side benefit) decreased significantly. The reason is that with a lower vocab size, the sorting and selecting task for the CPU becomes drastically faster as well.
+
+![The prep time (sending over the candidates to CPU) AND the expansion (heap building) time collapse drastically.](/content/sparklingtree/results-9-prep-collapse.png)
 
 **2. Doing repeated compute on CPU (particularly in the loop of expanding the tree)**
 
