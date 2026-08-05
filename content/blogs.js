@@ -2242,17 +2242,19 @@ Let's recall how the tree was constructed under DFlash, DDTree, DSpark, and now 
 
 Two key culprits are hitting us at the same time:
 
-1. Transfer cost between CPU and GPU — we can't move back and forth between the two.
-2. We need to precompute as much as possible.
+**1. Transfer cost between CPU and GPU**
 
-> **[Draft section — in progress]** The fixes below are still being written up.
+We cannot go back and forth from CPU to GPU at each step. This means we can't just run the Markov model on the GPU and send results to the CPU to build the heap, because it'd take too much bandwidth (especially at batch sizes). So, we have to send all the compute to be done on the CPU. Additionally, we have to send the entire diffusion matrix (entire vocabulary size × block size) to the CPU.
 
-We explored:
+The way we explore cutting this down is by running the top-k over all indexes immediately after the diffusion drafter is done (on GPU), before sending anything to the CPU. That way the CPU only realistically sees the top-k, and does not need to spend bandwidth receiving — and compute sorting — the entire vocabulary size. Even though this may miss one or two nodes (it is lossy if we are at max tree budget and something was excluded outside the range), it practically captures 99% of the full tree for a huge cost reduction.
 
-1. Solving it with beam search.
-2. Solving it with a prefetched tree.
+**2. Doing repeated compute on CPU**
 
-Let's revisit how DDTree creates the tree. We tried multiple ways of constructing it, and we can now make the tree *approximated* (a best-first search approximation) because the markov head gives us conditioned distributions to prune against.
+When we were working with DDTree, we could do the compute of top-k all as one batched matmul on the GPU beforehand, because of the independence between indexes. Now, we have to do N small sorts all on CPU. (Multiple small operations, and on CPU, is not good.)
+
+We need a way to be able to precompute as much of the iterative work in a single batch beforehand.
+
+> **[Draft section — in progress]** The solution writeup continues from here.
 
 # Conclusion and results
 
