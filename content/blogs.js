@@ -1932,11 +1932,11 @@ python3 3-workload/generate/generate_combined_dataset.py \
     date: "2026-08-05",
     category: "Research",
     authors: "Shrey Birmiwal",
-    summary: "By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a speculator called SparklingTree. SparklingTree has a +32.7% increase in acceptance at budget 64 (+31.2% wall clock speedup), and +47.4% acceptance at budget 256 (+43.9% wall clock).",
+    summary: "By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a speculator called SparklingTree. SparklingTree has a +32.7% increase in acceptance at budget 64 (+31.2% wall clock speedup), and +47.4% acceptance at budget 256 (+43.9% wall clock) over DSpark.",
     markdown: markdown(() => { /*
 # SparklingTree: 30-40% faster speculative decoding over DSpark
 
-TLDR: By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a speculator called SparklingTree. SparklingTree has a +32.7% increase in acceptance at budget 64 (+31.2% wall clock speedup), and +47.4% acceptance at budget 256 (+43.9% wall clock).
+TLDR: By combining first-order markov correction (DSpark), DDTree (tree based block diffusion draft speculative decoding), and a best-first search approximation, we create a speculator called SparklingTree. SparklingTree has a +32.7% increase in acceptance at budget 64 (+31.2% wall clock speedup), and +47.4% acceptance at budget 256 (+43.9% wall clock) over DSpark.
 
 GitHub: [jwlaboratory/sparkling-tree](https://github.com/jwlaboratory/sparkling-tree)
 
