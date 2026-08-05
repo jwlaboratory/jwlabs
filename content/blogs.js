@@ -2277,7 +2277,7 @@ We need a way to be able to precompute as much of the iterative work in a single
 
 Thank you very much for reading this! I've definitely learned a lot, from statistics to how the internals of speculators actually work. I'm immensely proud of my work and thankful for the people who've helped me learn this — and for you for reading! I would love any feedback / corrections / discussions!
 
-P.S. This entire project ran on [@modal](https://x.com/modal) — I've burned through over $1k in credits getting these results, and I'm officially tapped out! If anyone at Modal (or elsewhere) wants to sponsor the follow-up experiments above with a compute grant, I would genuinely love to chat.
+PS, I've spent > $1k in [@modal](https://x.com/modal) credits to build this and I'm now all out!! I would be super super grateful if anyone at Modal (or anywhere else) would like to help sponsor more open source blogs 🙏👀
 */ }),
   },
 ];
