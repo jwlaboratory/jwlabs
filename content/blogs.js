@@ -1962,7 +1962,14 @@ While the quality of the entire DFlash is lower (lower acceptance rate), it can 
 
 DFlash creates a matrix of marginal probabilities that is sampled from and used as the drafted token for the target. We'll see how this is important in the next section. You can visualize this as a table with `Vocab` columns and `draft block size` rows.
 
-$$\underbrace{p(u_{1:k} \mid c) = \prod_{i=1}^{k} p(u_i \mid c, u_{<i})}_{\text{autoregressive: each token conditions on } u_{<i}} \quad\text{vs.}\quad \underbrace{q(u_{1:k} \mid c, b) = \prod_{i=1}^{k} q_i(u_i \mid c, b)}_{\text{diffusion: conditionally independent given } (c,\, b)}$$
+$$
+\begin{aligned}
+p_{\mathrm{AR}}(u_{1:k} \mid c)
+&= \prod_{i=1}^{k} p(u_i \mid c, u_{<i}) \\
+q_{\mathrm{diff}}(u_{1:k} \mid c, b)
+&= \prod_{i=1}^{k} q_i(u_i \mid c, b) \\
+\end{aligned}
+$$
 
 DFlash brings huge speedups, however we'll discuss more of the limitations of DFlash in the following 2 sections.
 
@@ -1978,7 +1985,14 @@ The key insight of the DDTree paper is that we can use these independent margina
 
 For each node $u$ in the draft tree $T$, let $X_u \in \lbrace 0, 1 \rbrace$ indicate whether $u$ is accepted. A node is accepted only if every token on the chain from the root down to $u$ is accepted, so the number of accepted tokens is $\sum_{u \in T} X_u$. By [linearity of expectation](https://brilliant.org/wiki/linearity-of-expectation/) (which holds even when the $X_u$ are dependent):
 
-$$\mathbb{E}\left[\text{accepted} \mid T\right] = \mathbb{E}\left[\sum_{u \in T} X_u\right] = \sum_{u \in T} \Pr[u \text{ accepted}] = \sum_{u \in T} \; \prod_{v \in \mathrm{path}(u)} q(v)$$
+$$
+\begin{aligned}
+\mathbb{E}\left[\text{accepted} \mid T\right]
+&= \mathbb{E}\left[\sum_{u \in T} X_u\right] \\
+&= \sum_{u \in T} \Pr[u \text{ accepted}] \\
+&= \sum_{u \in T} \prod_{v \in \mathrm{path}(u)} q(v)
+\end{aligned}
+$$
 
 where $\mathrm{path}(u)$ is the chain from the root to $u$ (inclusive), and $q(v)$ is the per-token acceptance probability, so the product is the prefix probability that the entire chain up to $u$ survives verification.
 
@@ -1988,11 +2002,25 @@ Let's compare two different ways of doing this: chain vs tree.
 
 Here you can see the sum of the chain has an expected value of:
 
-$$\mathbb{E}\big[\text{accepted} \mid \text{chain}\big] = \sum_{d=1}^{4} \prod_{i=1}^{d} q_i = 0.55 + 0.44 + 0.31 + 0.26 = 1.56$$
+$$
+\begin{aligned}
+\mathbb{E}\big[\text{accepted} \mid \text{chain}\big]
+&= \sum_{d=1}^{4} \prod_{i=1}^{d} q_i \\
+&= 0.55 + 0.44 + 0.31 + 0.26 \\
+&= 1.56
+\end{aligned}
+$$
 
 However the sum of the tree has an expected value of:
 
-$$\mathbb{E}\big[\text{accepted} \mid \text{tree}\big] = \sum_{u \in T} \prod_{v \in \mathrm{path}(u)} q(v) = 0.55 + 0.40 + 0.44 + 0.34 = \mathbf{1.73}$$
+$$
+\begin{aligned}
+\mathbb{E}\big[\text{accepted} \mid \text{tree}\big]
+&= \sum_{u \in T} \prod_{v \in \mathrm{path}(u)} q(v) \\
+&= 0.55 + 0.40 + 0.44 + 0.34 \\
+&= \mathbf{1.73}
+\end{aligned}
+$$
 
 Clearly, the tree even though being much shallower has a higher expected value (even at the same total token budget). The cost of the tree is the cost of creating and verifying more tokens. DDTree mitigates much of this in the way it creates the tree and its tree attention mask, but at higher batch sizes the cost definitely weighs down on performance.
 

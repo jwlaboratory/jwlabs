@@ -321,38 +321,43 @@ const appendAuthorsWithLinks = (root, authorsText) => {
 };
 
 const appendInlineMarkdown = (root, text) => {
-  const cleanText = unescapeMarkdownSyntax(text);
+  const { protectedText, mathSegments } = protectMathSegments(text);
+  const cleanText = unescapeMarkdownSyntax(protectedText);
   const inlinePattern =
     /(\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*)/g;
   let lastIndex = 0;
   let match;
 
   while ((match = inlinePattern.exec(cleanText)) !== null) {
-    root.append(document.createTextNode(cleanText.slice(lastIndex, match.index)));
+    appendTextWithMathSegments(
+      root,
+      cleanText.slice(lastIndex, match.index),
+      mathSegments,
+    );
 
     if (match[2] && match[3]) {
       const link = document.createElement("a");
       link.href = match[3];
-      link.textContent = match[2];
+      appendTextWithMathSegments(link, match[2], mathSegments);
       root.append(link);
     } else if (match[4]) {
       const code = document.createElement("code");
-      code.textContent = match[4];
+      code.textContent = restoreMathSegments(match[4], mathSegments);
       root.append(code);
     } else if (match[5]) {
       const strong = document.createElement("strong");
-      strong.textContent = match[5];
+      appendTextWithMathSegments(strong, match[5], mathSegments);
       root.append(strong);
     } else if (match[6]) {
       const emphasis = document.createElement("em");
-      emphasis.textContent = match[6];
+      appendTextWithMathSegments(emphasis, match[6], mathSegments);
       root.append(emphasis);
     }
 
     lastIndex = inlinePattern.lastIndex;
   }
 
-  root.append(document.createTextNode(cleanText.slice(lastIndex)));
+  appendTextWithMathSegments(root, cleanText.slice(lastIndex), mathSegments);
 };
 
 const createParagraph = (text) => {
@@ -450,6 +455,181 @@ const unescapeMarkdownSyntax = (text = "") =>
 
 const normalizeLine = (line) =>
   unescapeMarkdownSyntax(line.trimStart()).replace(/\s+$/, "");
+
+const trimMarkdownLine = (line) => line.trimStart().replace(/\s+$/, "");
+
+const MATH_PLACEHOLDER_PATTERN = /\uE000(\d+)\uE001/g;
+
+const mathDelimiters = [
+  { left: "$$", right: "$$" },
+  { left: "\\[", right: "\\]" },
+  { left: "\\(", right: "\\)" },
+  { left: "$", right: "$" },
+];
+
+const blockMathDelimiters = mathDelimiters.slice(0, 2);
+
+const isEscapedAt = (text, index) => {
+  let slashCount = 0;
+
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === "\\"; cursor -= 1) {
+    slashCount += 1;
+  }
+
+  return slashCount % 2 === 1;
+};
+
+const findMathStart = (text, startIndex) => {
+  let next = null;
+
+  mathDelimiters.forEach((delimiter) => {
+    let index = text.indexOf(delimiter.left, startIndex);
+
+    while (index !== -1) {
+      const isSingleDollarInsideDisplay =
+        delimiter.left === "$" &&
+        (text[index + 1] === "$" || text[index - 1] === "$");
+
+      if (!isEscapedAt(text, index) && !isSingleDollarInsideDisplay) {
+        break;
+      }
+
+      index = text.indexOf(delimiter.left, index + delimiter.left.length);
+    }
+
+    if (index !== -1 && (!next || index < next.index)) {
+      next = { ...delimiter, index };
+    }
+  });
+
+  return next;
+};
+
+const findClosingMathDelimiter = (text, delimiter, startIndex) => {
+  let index = text.indexOf(delimiter.right, startIndex);
+
+  while (index !== -1) {
+    const isSingleDollarInsideDisplay =
+      delimiter.right === "$" &&
+      (text[index + 1] === "$" || text[index - 1] === "$");
+
+    if (!isEscapedAt(text, index) && !isSingleDollarInsideDisplay) {
+      return index;
+    }
+
+    index = text.indexOf(delimiter.right, index + delimiter.right.length);
+  }
+
+  return -1;
+};
+
+const protectMathSegments = (text = "") => {
+  const mathSegments = [];
+  let protectedText = "";
+  let index = 0;
+
+  while (index < text.length) {
+    const start = findMathStart(text, index);
+
+    if (!start) {
+      protectedText += text.slice(index);
+      break;
+    }
+
+    const contentStart = start.index + start.left.length;
+    const end = findClosingMathDelimiter(text, start, contentStart);
+
+    if (end === -1) {
+      protectedText += text.slice(index, contentStart);
+      index = contentStart;
+      continue;
+    }
+
+    protectedText += text.slice(index, start.index);
+    protectedText += `\uE000${mathSegments.length}\uE001`;
+    mathSegments.push(text.slice(start.index, end + start.right.length));
+    index = end + start.right.length;
+  }
+
+  return { protectedText, mathSegments };
+};
+
+const appendTextWithMathSegments = (root, text, mathSegments) => {
+  let lastIndex = 0;
+  let match;
+
+  MATH_PLACEHOLDER_PATTERN.lastIndex = 0;
+
+  while ((match = MATH_PLACEHOLDER_PATTERN.exec(text)) !== null) {
+    root.append(document.createTextNode(text.slice(lastIndex, match.index)));
+    root.append(document.createTextNode(mathSegments[Number(match[1])] ?? match[0]));
+    lastIndex = MATH_PLACEHOLDER_PATTERN.lastIndex;
+  }
+
+  root.append(document.createTextNode(text.slice(lastIndex)));
+};
+
+const restoreMathSegments = (text, mathSegments) =>
+  text.replace(
+    MATH_PLACEHOLDER_PATTERN,
+    (match, index) => mathSegments[Number(index)] ?? match,
+  );
+
+const getBlockMathDelimiter = (line = "") => {
+  const trimmed = line.trimStart();
+
+  return blockMathDelimiters.find((delimiter) =>
+    trimmed.startsWith(delimiter.left),
+  );
+};
+
+const lineClosesBlockMath = (line, delimiter, isOpeningLine) => {
+  const trimmed = line.trimEnd();
+
+  if (delimiter.left === delimiter.right && isOpeningLine) {
+    return trimmed.indexOf(delimiter.right, delimiter.left.length) !== -1;
+  }
+
+  return (
+    trimmed.endsWith(delimiter.right) &&
+    !isEscapedAt(trimmed, trimmed.length - delimiter.right.length)
+  );
+};
+
+const collectMathBlock = (lines, startIndex) => {
+  const delimiter = getBlockMathDelimiter(lines[startIndex]);
+
+  if (!delimiter) {
+    return null;
+  }
+
+  const mathLines = [lines[startIndex].trim()];
+
+  if (lineClosesBlockMath(mathLines[0], delimiter, true)) {
+    return { index: startIndex + 1, source: mathLines.join("\n") };
+  }
+
+  let index = startIndex + 1;
+
+  while (index < lines.length) {
+    mathLines.push(lines[index].trimEnd());
+
+    if (lineClosesBlockMath(lines[index], delimiter, false)) {
+      return { index: index + 1, source: mathLines.join("\n") };
+    }
+
+    index += 1;
+  }
+
+  return null;
+};
+
+const createMathBlock = (source) => {
+  const block = document.createElement("div");
+  block.className = "math-block";
+  block.textContent = source;
+  return block;
+};
 
 const extractReferenceDefinitions = (lines) => {
   const references = {};
@@ -564,7 +744,7 @@ const createTable = (rows) => {
   wrapper.className = "table-scroll";
 
   const splitRow = (row) =>
-    normalizeLine(row)
+    trimMarkdownLine(row)
       .replace(/^\||\|$/g, "")
       .split("|")
       .map((cell) => cell.trim());
@@ -631,10 +811,11 @@ const collectListItems = (lines, startIndex, itemPattern, createItem) => {
 
   while (index < lines.length) {
     const line = normalizeLine(lines[index]);
+    const rawLine = trimMarkdownLine(lines[index]);
     const match = line.match(itemPattern);
 
     if (match) {
-      items.push(createItem(match));
+      items.push(createItem(rawLine.match(itemPattern) ?? match));
       index += 1;
       continue;
     }
@@ -664,6 +845,7 @@ const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) =>
   let index = 0;
 
   while (index < lines.length) {
+    const rawLine = trimMarkdownLine(lines[index]);
     const line = normalizeLine(lines[index]);
 
     if (!line.trim()) {
@@ -688,19 +870,35 @@ const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) =>
 
     const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
     if (headingMatch) {
+      const rawHeadingMatch = rawLine.match(/^(#{1,6})\s+(.+)/) ?? headingMatch;
       fragment.append(
-        createHeading(headingMatch[1].length, headingMatch[2], usedHeadingIds),
+        createHeading(
+          rawHeadingMatch[1].length,
+          rawHeadingMatch[2],
+          usedHeadingIds,
+        ),
       );
       index += 1;
       continue;
     }
 
+    const mathBlock = collectMathBlock(lines, index);
+
+    if (mathBlock) {
+      fragment.append(createMathBlock(mathBlock.source));
+      index = mathBlock.index;
+      continue;
+    }
+
     const imageMatch = line.match(/^!\[([^\]]*)\](?:\(([^)]+)\)|\[([^\]]*)\])$/);
     if (imageMatch) {
-      const alt = imageMatch[1];
-      const referenceKey = imageMatch[3] || imageMatch[1];
+      const rawImageMatch =
+        rawLine.match(/^!\[([^\]]*)\](?:\(([^)]+)\)|\[([^\]]*)\])$/) ??
+        imageMatch;
+      const alt = rawImageMatch[1];
+      const referenceKey = rawImageMatch[3] || rawImageMatch[1];
       const { src, fallbackSrc } = resolveImageSource({
-        explicitSrc: imageMatch[2],
+        explicitSrc: rawImageMatch[2],
         referenceKey,
         references,
         post,
@@ -737,7 +935,7 @@ const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) =>
       const quoteLines = [];
 
       while (index < lines.length && /^>\s?/.test(normalizeLine(lines[index]))) {
-        quoteLines.push(normalizeLine(lines[index]).replace(/^>\s?/, ""));
+        quoteLines.push(trimMarkdownLine(lines[index]).replace(/^>\s?/, ""));
         index += 1;
       }
 
@@ -778,9 +976,10 @@ const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) =>
     while (
       index < lines.length &&
       normalizeLine(lines[index]).trim() &&
-      !isBlockStart(normalizeLine(lines[index]))
+      !isBlockStart(normalizeLine(lines[index])) &&
+      !getBlockMathDelimiter(lines[index])
     ) {
-      paragraphLines.push(normalizeLine(lines[index]).trim());
+      paragraphLines.push(trimMarkdownLine(lines[index]).trim());
       index += 1;
     }
 
