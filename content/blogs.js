@@ -2222,12 +2222,28 @@ But why does it do so poorly? Clearly SparklingTree is accepting many more token
 
 Let's recall how the tree was constructed under DFlash, DDTree, DSpark, and now SparklingTree.
 
-1. **DFlash:** No tree at all. The diffusion drafter runs, then we take a singular GPU operation to get the top element at each index. The candidate construction is fastest (0.05 ms/round) because it is a singular GPU operation.
-2. **DDTree:** The diffusion drafter runs. We take a singular GPU operation to sort the top-k elements in each index, then the CPU iteratively builds a heap from this sorted table. The candidate construction is 0.49 ms/round.
-3. **DSpark:** No tree at all. The diffusion drafter runs, then we take a GPU operation to get the top element in the first index. Then we run the autoregressive head. Then repeat. 0.54 ms/round.
-4. **SparklingTree:** 299.34 ms/round.
+1. **DFlash:** No tree at all. The diffusion drafter runs, then we take a singular GPU operation to get the top element at each index (argmax). The candidate construction is fastest (0.05 ms/round) because it is a singular GPU operation.
+
+![DFlash runs the diffusion drafter and samples argmax on GPU.](/content/sparklingtree/fig-build-dflash.png)
+
+2. **DDTree:** The diffusion drafter runs. We take a singular GPU operation to sort the top-k elements in each index (positions are independent, so this can be done upfront). One tiny table is copied over to the CPU, which iteratively builds a heap from this sorted table. The candidate construction is 0.49 ms/round — slower than DFlash due to the CPU working in a loop, but faster than the other speculators.
+
+![DDTree takes top K once on GPU, then builds a heap quickly on CPU.](/content/sparklingtree/fig-build-ddtree.png)
+
+3. **DSpark:** No tree at all. The diffusion drafter runs once. We then run the tiny autoregressive head on the GPU, bias the diffusion drafter, and sample the next token iteratively. DSpark is slightly slower (0.54 ms/round) than DDTree and DFlash because of the tiny autoregressive head: N small GPU operations have to occur rather than 1 big batched GPU operation.
+
+![DSpark runs the autoregressive head on GPU and samples iteratively.](/content/sparklingtree/fig-build-dspark.png)
+
+4. **SparklingTree:** First, we create the diffusion draft matrix one time. Because the positions are no longer independent (markov model), top-k can no longer be precomputed upfront on the GPU. We have to first copy over the entire matrix to the CPU, which runs the heap algorithm from DDTree in a loop — but with the top-k computation + markov model running EVERY pop, and on CPU. It is by far the slowest at 299.34 ms/round.
+
+![SparklingTree has to run heap creation on CPU, with top-k and markov model generation on CPU.](/content/sparklingtree/fig-build-sparklingtree.png)
 
 ### Solving the candidate tree construction
+
+Two key culprits are this:
+
+1. We can't move back and forth between GPU and CPU.
+2. We need to precompute as much as possible.
 
 > **[Draft section — in progress]** The fixes below are still being written up.
 
