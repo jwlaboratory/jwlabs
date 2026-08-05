@@ -2151,6 +2151,8 @@ We validated the idea by graphing the per-depth acceptance, now with SparklingTr
 
 ![The per-depth acceptance rate shows how DDTree starts high whilst DSpark is able to maintain more consistency compared to DFlash/DDTree. SparklingTree shows flat-ish + a high starting acceptance rate.](/content/sparklingtree/results-1.png)
 
+Note: we use the [DDTree repository](https://github.com/liranringel/ddtree) and the greedy decoding technique from its benchmarking scripts.
+
 DDTree starts at an extremely high acceptance rate, because it can hedge with multiple shallow branches early, rather than go down one path that might be wrong entirely — just as we predicted. On the other hand, DSpark starts lower, but because it has an autoregressive biaser, it stays steady (on sequences in which it starts correct, it is likely to continue being correct), while DDTree dips hard.
 
 SparklingTree takes the best of both worlds. It starts high due to the hedging and branching, but also maintains relatively steady throughout depth because of the markov model conditioning.
@@ -2183,11 +2185,11 @@ Like I explained earlier, the DSpark model + markov corrector + tree pushed DSpa
 
 To break past this ceiling, we had to retrain DSpark to work with a block size of 15 (16 max tokens drafted and accepted). Since the starting model, DeepSeek's released `dspark_qwen3_4b_block7` drafter, can be changed to draft 16 blocks with just a setting tweak (it does not change any parameter shapes), it can do block=16 out of the box — it will just perform terribly, because it has never seen training data above block=7.
 
-We take the DeepSpec codebase, load in our starting point, then continue training with block size 16 on sequence size 768, 32 anchors per sequence, at 600 steps with 2,400 PerfectBlend chat conversations. We also make sure to continue training the markov head (though it should not matter, since the markov model is position invariant) and the confidence head.
+We take the DeepSpec codebase, load in our starting point, then continue training with block size 16 on sequence size 768, 32 anchors per sequence, at 600 steps with 2,400 PerfectBlend chat conversations. We chose this dataset so as to not confound by training on the exact data we would test with. We also make sure to continue training the markov head (though it should not matter, since the markov model is position invariant) and the confidence head.
 
-![DSpark finetuned to block size 16 performs the best because it breaks the b=7 ceiling: SparklingTree b16 reaches 8.21 accepted tokens per verifier call (+24% over b7, +52% over DFlash).](/content/sparklingtree/results-5-final-acceptance.png)
+![DSpark finetuned to block size 16 performs the best because it breaks the b=7 ceiling: SparklingTree b16 reaches 8.21 accepted tokens per verifier call, +52% over DFlash.](/content/sparklingtree/results-5-final-acceptance.png)
 
-The results achieve our goal of smashing the 7 token max limit of DSpark.
+The results achieve our goal of smashing the 7 token max limit of DSpark. We also tested DSpark with our b16 but *without* the tree verification, to isolate that it wasn't just the extra training on PerfectBlend giving us the speedup, but rather the tree itself. The results show that at block size 16, the tree gives a 39% advantage, and at block size 7 a 24% advantage.
 
 Our checkpoint: [huggingface.co/shreybirmiwal/Qwen3-4B-DSpark-b16](https://huggingface.co/shreybirmiwal/Qwen3-4B-DSpark-b16)
 
@@ -2264,17 +2266,14 @@ We need a way to be able to precompute as much of the iterative work in a single
 
 # Conclusion and results
 
-> **[Results chart — data needed]** Head-to-head of DDTree, DFlash, DSpark, and SparklingTree. Drop in the wall-clock-speedup comparison once finalized.
-
-I've learned a lot about statistics, and how the internals of these speculators actually work. Thanks for reading, and I would love any feedback!
-
 ## Future Ideas
 
-1. Training the tree, the markov model, and the rest of the harness together.
-2. Jointly training DSpark's confidence head with the tree — it stops working when spliced naively, but it could be useful for knowing when to stop verifying.
-3. Benchmarking at larger batch sizes.
-4. Trying MoE and bigger target models.
-5. Beam search — we did an experiment; the results were not the best.
+1. We saw that training the markov model jointly with the drafter is absolutely essential — otherwise accuracy collapses. Could it be that the tree should also be jointly baked into the training of the markov model + drafter?
+2. Similarly, DSpark has a confidence head. This was originally designed for a chain (NOT a tree), but can we still use it to help decide when to stop verification? This could make this project more viable at higher batch sizes. Additionally, how does it perform when it is jointly baked into the training as well? I did some cursory experiments in the [archive-1 folder](https://github.com/jwlaboratory/sparkling-tree/tree/main/archive-1-speedup-w-confidence-head-verification) but didn't spend enough time to tell if this is an interesting direction.
+3. We run benchmarks at batch size 1 because the engineering lift to make this work on an engine like SGLang or vLLM would be too large. We should next try larger batch sizes. We guess that the gains likely diminish rapidly at larger batch sizes. Additionally: trying tensor-parallel GPUs, MoE models (more experts need to be loaded in, doing worse with the tree's extra nodes to verify), and bigger models.
+4. [Beam search](https://en.wikipedia.org/wiki/Beam_search) uses a fixed branching budget and has been shown to work well, instead of a best-first heap. I briefly tried an experiment in [archive-2](https://github.com/jwlaboratory/sparkling-tree/tree/main/archive-2-finding_best-beam). The results are somewhat interesting in that you actually want evenly spread out branches instead of front-loaded or back-loaded. This is space for more exploration.
+
+Thank you very much for reading this! I've definitely learned a lot, from statistics to how the internals of speculators actually work. I'm immensely proud of my work and thankful for the people who've helped me learn this — and for you for reading! I would love any feedback / corrections / discussions!
 */ }),
   },
 ];
