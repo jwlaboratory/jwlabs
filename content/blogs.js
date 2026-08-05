@@ -2201,24 +2201,50 @@ We ran the algorithm using the DDTree benchmarking script and were surprised to 
 
 But why does it do so poorly? Clearly SparklingTree is accepting many more tokens. Investigating the time breakdown shows the story more completely:
 
-![Phase shares of decode wall clock (tree budget 64): for the other methods verify dominates, but for SparklingTree b16 candidate_build takes 89% of the time at 43 ms/token.](/content/sparklingtree/results-7-phase-shares.png)
+![The breakdown of time spent across DFlash, DSpark, DDTree, and SparklingTree.](/content/sparklingtree/results-7-phase-shares.png)
+
+|  | DFlash | DSpark | DDTree TB=64 | DDTree TB=256 | SparklingTree, B=16, Tree Budget = 64 | SparklingTree, B=16, Tree Budget = 256 |
+| :---- | :---- | :---- | :---- | :---- | :---- | :---- |
+| Draft forward pass | 1.24 ms/committed-tok · 16.6% · 5.58 ms/round | 1.20 ms/committed-tok · 16.5% · 5.64 ms/round | 0.82 ms/committed-tok · 16.5% · 5.29 ms/round | 0.76 ms/committed-tok · 16.3% · 5.45 ms/round | 0.86 ms/committed-tok · 1.8% · 6.13 ms/round | 0.74 ms/committed-tok · 0.7% · 5.93 ms/round |
+| Candidate tree construction | 0.01 ms/committed-tok · 0.1% · 0.05 ms/round | 0.11 ms/committed-tok · 1.6% · 0.54 ms/round | 0.08 ms/committed-tok · 1.5% · 0.49 ms/round | 0.12 ms/committed-tok · 2.7% · 0.89 ms/round | 41.93 ms/committed-tok · 88.8% · 299.34 ms/round | 107.75 ms/committed-tok · 96.0% · 860.21 ms/round |
+| Verification by target model over candidates | 6.13 ms/committed-tok · 81.8% · 27.59 ms/round | 5.85 ms/committed-tok · 80.5% · 27.55 ms/round | 3.82 ms/committed-tok · 76.7% · 24.60 ms/round | 3.52 ms/committed-tok · 75.5% · 25.25 ms/round | 4.09 ms/committed-tok · 8.7% · 29.23 ms/round | 3.45 ms/committed-tok · 3.1% · 27.57 ms/round |
+| Everything else | 0.11 ms/committed-tok · 1.5% · 0.49 ms/round | 0.10 ms/committed-tok · 1.4% · 0.47 ms/round | 0.26 ms/committed-tok · 5.3% · 1.71 ms/round | 0.25 ms/committed-tok · 5.5% · 1.83 ms/round | 0.31 ms/committed-tok · 0.7% · 2.23 ms/round | 0.29 ms/committed-tok · 0.3% · 2.31 ms/round |
+| Total | 7.50 ms/committed-tok · 33.72 ms/round | 7.26 ms/committed-tok · 34.20 ms/round | 4.98 ms/committed-tok · 32.09 ms/round | 4.66 ms/committed-tok · 33.42 ms/round | 47.20 ms/committed-tok · 336.94 ms/round | 112.23 ms/committed-tok · 896.01 ms/round |
+| accept/round (committed tokens per verify round) | 4.50 | 4.71 | 6.45 | 7.17 | 7.14 | 7.98 |
+
+**Observations**
+
+1. **Draft forward pass:** The time per round is approximately the same. Draft forward is the time it takes for the diffusion draft model to do a forward pass, and it is approximately the same because they all share similar setups (4B-param diffusion drafters each doing one block forward per round). The time per committed token slightly varies (being fastest for SparklingTree) because it differs in accuracy (SparklingTree creates the most committed tokens).
+2. **Candidate tree construction:** **The huge one. Let's get back to this one below.**
+3. **Verification by target model over candidates:** Approximately the same. Of course the tree approaches have more nodes to verify, so it costs slightly more. Nuance 1: at larger batch sizes it is hard to say how this will change — I'm guessing it'll get worse once you pass the tip of the compute-bound ridge. At this point, being extremely memory bound (running batch size 1) under-shows the verification cost being the same (because all nodes are parallelized, and the bottleneck is the memory bandwidth loading in weights). Nuance 2: in MoE models it is hard to say how this will change as well. MoE models have to load in experts, so having more tree nodes to verify may trigger more experts to load in (which is bad, considering you are already memory bound).
+
+### What the heck is happening with the candidate tree construction?
+
+Let's recall how the tree was constructed under DFlash, DDTree, DSpark, and now SparklingTree.
+
+1. **DFlash:** No tree at all. The diffusion drafter runs, then we take a singular GPU operation to get the top element at each index. The candidate construction is fastest (0.05 ms/round) because it is a singular GPU operation.
+2. **DDTree:** The diffusion drafter runs. We take a singular GPU operation to sort the top-k elements in each index, then the CPU iteratively builds a heap from this sorted table. The candidate construction is 0.49 ms/round.
+3. **DSpark:** No tree at all. The diffusion drafter runs, then we take a GPU operation to get the top element in the first index. Then we run the autoregressive head. Then repeat. 0.54 ms/round.
+4. **SparklingTree:** 299.34 ms/round.
+
+### Solving the candidate tree construction
 
 > **[Draft section — in progress]** The fixes below are still being written up.
 
-The markov head makes tree construction sequential, so building the full DDTree-style tree on top of it is costly. We explored:
+We explored:
 
 1. Solving it with beam search.
 2. Solving it with a prefetched tree.
 
 Let's revisit how DDTree creates the tree. We tried multiple ways of constructing it, and we can now make the tree *approximated* (a best-first search approximation) because the markov head gives us conditioned distributions to prune against.
 
-## Conclusion and results
+# Conclusion and results
 
 > **[Results chart — data needed]** Head-to-head of DDTree, DFlash, DSpark, and SparklingTree. Drop in the wall-clock-speedup comparison once finalized.
 
 I've learned a lot about statistics, and how the internals of these speculators actually work. Thanks for reading, and I would love any feedback!
 
-# Future Ideas
+## Future Ideas
 
 1. Training the tree, the markov model, and the rest of the harness together.
 2. Jointly training DSpark's confidence head with the tree — it stops working when spliced naively, but it could be useful for knowing when to stop verifying.
