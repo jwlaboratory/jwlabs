@@ -13,8 +13,9 @@
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="JW Labs Research" />
   <meta name="twitter:description" content="JW Labs research post." />
-  <link rel="stylesheet" href="/styles.css?v=20260806-math-safari" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
+  <link rel="stylesheet" href="/styles.css?v=20260808-math-selfhost" />
+  <!-- KaTeX is self-hosted (see /vendor/katex) so math never depends on a third-party CDN. -->
+  <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.16.11" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css" crossorigin="anonymous" />
   <script>
     window.va = window.va || function () { (window.vai = window.vai || []).push(arguments); };
@@ -65,8 +66,8 @@
 
   <script src="/content/authors.js"></script>
   <script src="/content/blogs.js?v=20260805-math"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+  <script defer src="/vendor/katex/katex.min.js?v=0.16.11"></script>
+  <script defer src="/vendor/katex/contrib/auto-render.min.js?v=0.16.11"></script>
   <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js" crossorigin="anonymous"></script>
   <script defer src="/scripts/render-blog.js?v=20260805-math"></script>
 </body>
