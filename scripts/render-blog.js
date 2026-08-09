@@ -1160,6 +1160,7 @@ const renderArticlePage = () => {
     .append(renderMarkdown(bodyMarkdown, post, headingIds));
   postRoot.append(postNode);
   buildTableOfContents(postRoot);
+  ensureMathStylesheet();
   renderMathInPost(postRoot);
   highlightCodeInPost(postRoot);
 };
@@ -1183,6 +1184,31 @@ const highlightCodeInPost = (root) => {
 
   if (!run()) {
     window.addEventListener("load", run, { once: true });
+  }
+};
+
+// Browsers (Safari especially) can keep a truncated or stale copy of a
+// cached stylesheet indefinitely, which leaves KaTeX's layout rules missing
+// while its @font-face rules still work - equations then render as collapsed,
+// clipped glyph piles. Probe a rule from late in katex.min.css and refetch
+// the stylesheet past the cache once if it isn't in effect.
+const ensureMathStylesheet = () => {
+  const probe = document.createElement("span");
+  probe.className = "katex-display";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  document.body.append(probe);
+  const applied = getComputedStyle(probe).display === "block";
+  probe.remove();
+
+  if (applied) {
+    return;
+  }
+
+  const link = document.querySelector('link[href*="katex.min.css"]');
+
+  if (link && !link.href.includes("cachebust")) {
+    link.href = `${link.href}&cachebust=${Date.now()}`;
   }
 };
 
