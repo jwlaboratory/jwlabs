@@ -14,19 +14,19 @@
   <meta name="twitter:title" content="JW Labs Research" />
   <meta name="twitter:description" content="JW Labs research post." />
   <link rel="stylesheet" href="/styles.css?v=20260809-math-rootfix" />
-  <!-- KaTeX and highlight.js are self-hosted (see /vendor) so rendering never depends on a third-party CDN. -->
+  <!-- KaTeX and highlight.js are self-hosted (see /vendor, path-versioned so immutable caching is safe across upgrades) so rendering never depends on a third-party CDN. -->
   <!-- Preload the math fonts articles actually use. Safari intermittently drops
        @font-face fonts it has to fetch lazily mid-render, which mangles KaTeX
        layout (wrong glyph metrics); preloading makes the fetch early and deterministic. -->
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_AMS-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.16.11-20260809" />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_AMS-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex-0.18.2/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/vendor/katex-0.18.2/katex.min.css" />
   <link rel="stylesheet" href="/vendor/highlight/github.min.css?v=11.9.0" />
   <script>
     window.va = window.va || function () { (window.vai = window.vai || []).push(arguments); };
@@ -77,8 +77,8 @@
 
   <script src="/content/authors.js"></script>
   <script src="/content/blogs.js?v=20260809-math"></script>
-  <script defer src="/vendor/katex/katex.min.js?v=0.16.11-20260809"></script>
-  <script defer src="/vendor/katex/contrib/auto-render.min.js?v=0.16.11-20260809"></script>
+  <script defer src="/vendor/katex-0.18.2/katex.min.js"></script>
+  <script defer src="/vendor/katex-0.18.2/contrib/auto-render.min.js"></script>
   <script defer src="/vendor/highlight/highlight.min.js?v=11.9.0"></script>
   <script defer src="/scripts/render-blog.js?v=20260809-math-rootfix2"></script>
 </body>
