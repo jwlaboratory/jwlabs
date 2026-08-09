@@ -1187,19 +1187,31 @@ const highlightCodeInPost = (root) => {
 };
 
 const renderMathInPost = (root) => {
-  if (typeof window.renderMathInElement !== "function") {
-    return;
-  }
+  // KaTeX scripts are deferred, so retry on load if they haven't run yet.
+  const run = () => {
+    if (typeof window.renderMathInElement !== "function") {
+      return false;
+    }
 
-  window.renderMathInElement(root, {
-    delimiters: [
-      { left: "$$", right: "$$", display: true },
-      { left: "$", right: "$", display: false },
-      { left: "\\(", right: "\\)", display: false },
-      { left: "\\[", right: "\\]", display: true },
-    ],
-    throwOnError: false,
-  });
+    window.renderMathInElement(root, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "$", right: "$", display: false },
+        { left: "\\(", right: "\\)", display: false },
+        { left: "\\[", right: "\\]", display: true },
+      ],
+      // HTML-only output: the default htmlAndMathml mode emits a hidden
+      // MathML copy of every equation that becomes visible and overlaps the
+      // page whenever the KaTeX stylesheet fails to (fully) load.
+      output: "html",
+      throwOnError: false,
+    });
+    return true;
+  };
+
+  if (!run()) {
+    window.addEventListener("load", run, { once: true });
+  }
 };
 
 renderArticlePage();
