@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>math render test</title>
+  <link rel="stylesheet" href="/vendor/katex-0.18.2/katex.min.css" />
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 24px; font-size: 15px; }
+    h2 { font-size: 16px; margin: 24px 0 8px; }
+    .box { border: 1px solid #ddd; padding: 12px; }
+  </style>
+</head>
+<body>
+  <div id="zoominfo"></div>
+
+  <h2>KaTeX (HTML output)</h2>
+  <div class="box" id="katex-target"></div>
+
+  <h2>MathJax v4 (SVG output)</h2>
+  <div class="box" id="mathjax-target">
+    $$\begin{aligned}
+    \mathbb{E}\big[\text{accepted} \mid \text{tree}\big]
+    &= \sum_{u \in T} \prod_{v \in \mathrm{path}(u)} q(v) \\
+    &= 0.55 + 0.40 + 0.44 + 0.34 \\
+    &= \mathbf{1.73}
+    \end{aligned}$$
+  </div>
+
+  <script>
+    document.getElementById("zoominfo").textContent =
+      `dpr=${window.devicePixelRatio} innerW=${window.innerWidth} outerW=${window.outerWidth}`;
+    window.MathJax = {
+      tex: { displayMath: [["$$", "$$"]] },
+      startup: { elements: ["#mathjax-target"] },
+    };
+  </script>
+  <script src="/vendor/katex-0.18.2/katex.min.js"></script>
+  <script>
+    katex.render(
+      "\\begin{aligned}" +
+      "\\mathbb{E}\\big[\\text{accepted} \\mid \\text{tree}\\big]" +
+      "&= \\sum_{u \\in T} \\prod_{v \\in \\mathrm{path}(u)} q(v) \\\\" +
+      "&= 0.55 + 0.40 + 0.44 + 0.34 \\\\" +
+      "&= \\mathbf{1.73}" +
+      "\\end{aligned}",
+      document.getElementById("katex-target"),
+      { displayMode: true, output: "html", throwOnError: false },
+    );
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-svg.js"></script>
+</body>
+</html>
