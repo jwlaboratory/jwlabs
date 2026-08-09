@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>font diag</title>
+  <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.16.11" />
+  <style>
+    body { font-family: -apple-system, sans-serif; font-size: 18px; padding: 24px; }
+    #out div { padding: 2px 0; }
+    .ok { color: #0a7d38; }
+    .fail { color: #c01818; font-weight: 700; }
+    #ua { color: #666; font-size: 13px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div id="ua"></div>
+  <div id="out">loading…</div>
+  <div id="errors"></div>
+  <script>
+    document.getElementById("ua").textContent = navigator.userAgent;
+    const errs = [];
+    window.addEventListener("error", (e) => {
+      if (e.target && e.target.tagName) errs.push(e.target.src || e.target.href || e.target.tagName);
+    }, true);
+
+    const fonts = [
+      "KaTeX_Main", "KaTeX_Math", "KaTeX_AMS", "KaTeX_Size1",
+      "KaTeX_Size2", "KaTeX_Size3", "KaTeX_Size4", "KaTeX_Caligraphic",
+    ];
+    const out = document.getElementById("out");
+
+    async function run() {
+      out.textContent = "";
+      for (const f of fonts) {
+        const spec = (f === "KaTeX_Math" ? "italic " : "") + "20px \"" + f + "\"";
+        let loaded = false, err = "";
+        try {
+          const res = await Promise.race([
+            document.fonts.load(spec, "∑∏ABC123"),
+            new Promise((r) => setTimeout(() => r("timeout"), 8000)),
+          ]);
+          loaded = res !== "timeout" && document.fonts.check(spec, "∑");
+          if (res === "timeout") err = "timeout";
+        } catch (e) { err = String(e).slice(0, 80); }
+        const div = document.createElement("div");
+        div.className = loaded ? "ok" : "fail";
+        div.textContent = (loaded ? "OK   " : "FAIL ") + f + (err ? "  [" + err + "]" : "");
+        out.append(div);
+      }
+      const perf = performance.getEntriesByType("resource").filter((r) => r.name.includes("fonts/"));
+      const p = document.createElement("div");
+      p.style.fontSize = "13px";
+      p.style.color = "#444";
+      p.textContent = "font fetches: " + perf.map((r) =>
+        r.name.split("/").pop().replace(".woff2", "") + " t=" + Math.round(r.duration) + "ms sz=" + r.transferSize
+      ).join(" | ");
+      out.append(p);
+      if (errs.length) {
+        const e = document.createElement("div");
+        e.className = "fail";
+        e.textContent = "resource errors: " + errs.join(", ");
+        document.getElementById("errors").append(e);
+      }
+    }
+    run();
+  </script>
+</body>
+</html>
