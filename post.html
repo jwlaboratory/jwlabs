@@ -15,6 +15,17 @@
   <meta name="twitter:description" content="JW Labs research post." />
   <link rel="stylesheet" href="/styles.css?v=20260809-math-rootfix" />
   <!-- KaTeX and highlight.js are self-hosted (see /vendor) so rendering never depends on a third-party CDN. -->
+  <!-- Preload the math fonts articles actually use. Safari intermittently drops
+       @font-face fonts it has to fetch lazily mid-render, which mangles KaTeX
+       layout (wrong glyph metrics); preloading makes the fetch early and deterministic. -->
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_AMS-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/vendor/katex/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.16.11" />
   <link rel="stylesheet" href="/vendor/highlight/github.min.css?v=11.9.0" />
   <script>
