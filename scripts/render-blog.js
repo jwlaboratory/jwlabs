@@ -1212,6 +1212,36 @@ const ensureMathStylesheet = () => {
   }
 };
 
+// Math blocks default to overflow-x: clip because Safari mispaints KaTeX
+// inside scroll containers at non-100% page zoom. Only equations wider than
+// their container actually need scrolling, so opt just those into a scroll
+// container, and keep the set current as the window resizes.
+const updateMathScrollability = (root) => {
+  root.querySelectorAll(".math-block").forEach((block) => {
+    const inner = block.querySelector(".katex");
+
+    if (!inner) {
+      return;
+    }
+
+    block.classList.toggle(
+      "is-scrollable",
+      inner.getBoundingClientRect().width > block.clientWidth + 1,
+    );
+  });
+};
+
+const watchMathScrollability = (root) => {
+  updateMathScrollability(root);
+
+  let resizeTimer = null;
+
+  window.addEventListener("resize", () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => updateMathScrollability(root), 150);
+  });
+};
+
 const renderMathInPost = (root) => {
   // KaTeX scripts are deferred, so retry on load if they haven't run yet.
   const run = () => {
@@ -1232,6 +1262,7 @@ const renderMathInPost = (root) => {
       output: "html",
       throwOnError: false,
     });
+    watchMathScrollability(root);
     return true;
   };
 

@@ -654,9 +654,20 @@ body[data-page="article"] .site-footer {
   color: var(--text);
 }
 
+/* Safari mispaints KaTeX's stacked glyphs (big operators get shifted and
+   clipped) inside an overflow-x:auto scroll container whenever page zoom is
+   not 100%. overflow-x:clip avoids creating a scroll container, which paints
+   correctly at every zoom level; render-blog.js adds .is-scrollable only to
+   blocks whose equation is actually wider than the container, since those
+   are the only ones that need a scrollbar. */
 .blog-content .math-block {
   margin: 32px 0;
   max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.blog-content .math-block.is-scrollable {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
