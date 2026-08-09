@@ -1240,4 +1240,57 @@ const renderMathInPost = (root) => {
   }
 };
 
+// Temporary in-page diagnostics: open any post with ?mathdebug=1 to overlay
+// the computed styles that govern KaTeX layout. Lets us inspect a reader's
+// exact browser state (extensions, cached CSS) without devtools access.
+const renderMathDebugOverlay = () => {
+  if (!new URLSearchParams(window.location.search).has("mathdebug")) {
+    return;
+  }
+
+  const lines = [];
+  lines.push(`ua: ${navigator.userAgent}`);
+  lines.push(`render-blog: ${document.querySelector('script[src*="render-blog"]')?.src}`);
+  lines.push(`katex css: ${document.querySelector('link[href*="katex.min.css"]')?.href}`);
+  lines.push(`katex js loaded: ${typeof window.katex} / autorender: ${typeof window.renderMathInElement}`);
+  lines.push(`katex nodes: ${document.querySelectorAll(".katex").length}, mathml nodes: ${document.querySelectorAll(".katex-mathml").length}`);
+
+  const probeClass = (cls, props) => {
+    const el = document.querySelector(cls);
+    if (!el) {
+      lines.push(`${cls}: MISSING`);
+      return;
+    }
+    const cs = getComputedStyle(el);
+    lines.push(`${cls}: ${props.map((p) => `${p}=${cs[p]}`).join(" ")}`);
+  };
+
+  probeClass(".katex", ["fontFamily", "fontSize", "lineHeight"]);
+  probeClass(".katex-display", ["display", "overflow", "textAlign"]);
+  probeClass(".katex .vlist-t", ["display", "tableLayout", "borderCollapse"]);
+  probeClass(".katex .vlist-r", ["display"]);
+  probeClass(".katex .vlist", ["display", "position", "overflow"]);
+  probeClass(".katex .vlist > span", ["display", "position", "height", "overflow"]);
+  probeClass(".katex .pstrut", ["display", "overflow"]);
+  probeClass(".katex .op-symbol", ["fontFamily", "position", "top", "display"]);
+  probeClass(".math-block", ["overflow", "overflowX", "overflowY", "lineHeight"]);
+
+  const large = document.querySelector(".katex .op-symbol.large-op");
+  if (large) {
+    const r = large.getBoundingClientRect();
+    lines.push(`large-op rect: ${Math.round(r.width)}x${Math.round(r.height)} font=${getComputedStyle(large).fontFamily}`);
+  }
+
+  lines.push(`fonts: Size2=${document.fonts.check('20px "KaTeX_Size2"', "∑")} Size1=${document.fonts.check('20px "KaTeX_Size1"', "∑")} Main=${document.fonts.check('20px "KaTeX_Main"', "x")}`);
+
+  const overlay = document.createElement("pre");
+  overlay.style.cssText =
+    "position:fixed;top:0;left:0;right:0;z-index:99999;background:#fff;color:#000;" +
+    "font:11px/1.5 Menlo,monospace;padding:10px;border-bottom:2px solid #c00;" +
+    "white-space:pre-wrap;margin:0;max-height:60vh;overflow:auto;";
+  overlay.textContent = lines.join("\n");
+  document.body.append(overlay);
+};
+
 renderArticlePage();
+window.addEventListener("load", () => setTimeout(renderMathDebugOverlay, 500));
