@@ -1248,8 +1248,24 @@ const renderMathDebugOverlay = () => {
     return;
   }
 
+  const fixes = {
+    1: ".katex .vlist-t { border-collapse: separate !important; }",
+    2: ".blog-content .katex { transform: translateZ(0); }",
+    3: ".blog-content .math-block { line-height: normal; }",
+    4: ".katex .vlist-t { display: inline-flex !important; align-items: baseline; }",
+    5: ".blog-content .katex-display > .katex { transform: translateZ(0); }",
+  };
+  const fixId = new URLSearchParams(window.location.search).get("mathfix");
+
+  if (fixes[fixId]) {
+    const style = document.createElement("style");
+    style.textContent = fixes[fixId];
+    document.head.append(style);
+  }
+
   const lines = [];
-  lines.push(`ua: ${navigator.userAgent}`);
+  lines.push(`ua: ${navigator.userAgent}  fix=${fixId ?? "none"}`);
+  lines.push(`dpr=${window.devicePixelRatio} innerW=${window.innerWidth} outerW=${window.outerWidth} vvScale=${window.visualViewport?.scale}`);
   lines.push(`render-blog: ${document.querySelector('script[src*="render-blog"]')?.src}`);
   lines.push(`katex css: ${document.querySelector('link[href*="katex.min.css"]')?.href}`);
   lines.push(`katex js loaded: ${typeof window.katex} / autorender: ${typeof window.renderMathInElement}`);
