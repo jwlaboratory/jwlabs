@@ -790,6 +790,93 @@ body[data-page="article"] .site-footer {
   color: var(--muted);
 }
 
+.subscribe-copy {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.subscribe-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  max-width: 440px;
+}
+
+.subscribe-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.subscribe-input::placeholder {
+  color: #aaaaaa;
+}
+
+.subscribe-input:focus {
+  outline: none;
+  border-bottom-color: var(--text);
+}
+
+.subscribe-button {
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.subscribe-button:hover {
+  border-color: var(--text);
+}
+
+.subscribe-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* Honeypot field: hidden from humans, present for bots. Kept off-screen
+   rather than display:none so naive bots still fill it in. */
+.subscribe-hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.subscribe-status {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.subscribe-status:empty {
+  display: none;
+}
+
+.post-subscribe {
+  max-width: var(--article-max-width);
+  margin-bottom: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
 .team-list {
   display: grid;
   border-top: 1px solid var(--text);
