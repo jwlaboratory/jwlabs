@@ -791,7 +791,7 @@ body[data-page="article"] .site-footer {
 }
 
 .subscribe-copy {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
@@ -801,14 +801,17 @@ body[data-page="article"] .site-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  max-width: 440px;
+  gap: 16px;
+  max-width: 480px;
 }
 
+/* Input and button share an explicit height so flex centering keeps the
+   button visually aligned with the input's underline. */
 .subscribe-input {
   flex: 1;
-  min-width: 200px;
-  padding: 6px 0;
+  min-width: 220px;
+  height: 36px;
+  padding: 0;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -829,14 +832,15 @@ body[data-page="article"] .site-footer {
 }
 
 .subscribe-button {
-  padding: 5px 14px;
+  height: 36px;
+  padding: 0 20px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: none;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1;
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
@@ -861,7 +865,7 @@ body[data-page="article"] .site-footer {
 }
 
 .subscribe-status {
-  margin: 10px 0 0;
+  margin: 12px 0 0;
   color: var(--muted);
   font-size: 13px;
 }
@@ -870,10 +874,15 @@ body[data-page="article"] .site-footer {
   display: none;
 }
 
+.home-subscribe {
+  margin: -8px 0 8px;
+  padding-bottom: 32px;
+}
+
 .post-subscribe {
   max-width: var(--article-max-width);
   margin-bottom: 40px;
-  padding-top: 24px;
+  padding-top: 28px;
   border-top: 1px solid var(--line);
 }
 
