@@ -907,7 +907,7 @@ body[data-page="article"] .site-footer {
 }
 
 .blog-content figure.figure-compact {
-  max-width: 160px;
+  max-width: 320px;
   margin-left: 0;
   margin-right: auto;
   text-align: left;
