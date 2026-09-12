@@ -92,7 +92,9 @@ But does this actually work? So I tested this out by playing a little bit of my 
 
 *(Yes, I still brought my controller and Rekordbox to take over from the AI when needed, and yes, the AI isn't perfect, but it clearly shows potential.)*
 
-I didn't tell anybody, but people still danced exactly like they would to any other set. And to me, this makes me think, do people really care about the DJ? Or just the social experience that they're looking at somebody and they have a DJ present? Additionally, is my job as a DJ solely to pick the songs and control the vibe?
+I didn't tell anybody, but people still danced exactly like they would to any other set. And to me, this makes me think, do people really care about the DJ? Or just the social experience that they're looking at somebody and they have a DJ present? Is my job as a DJ solely to pick the songs and control the vibe?
+
+This was a really really fun experiment. I hope you had as much fun reading it as I had building and trying this out.
 */ }),
   },
   {
