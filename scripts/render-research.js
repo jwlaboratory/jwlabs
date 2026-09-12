@@ -55,6 +55,8 @@ const renderSection = (sectionId, listId, items) => {
     return;
   }
 
+  // The page may arrive prerendered (see build.js); rebuild the list fresh.
+  list.replaceChildren();
   items.forEach((item) => list.append(createListItem(item)));
 };
 
@@ -74,7 +76,9 @@ const renderResearchPage = () => {
       href: `/post/${encodeURIComponent(getPostId(post))}`,
     }));
 
-  const researchPosts = visiblePosts.filter((post) => post.category !== "Engineering");
+  const researchPosts = visiblePosts.filter(
+    (post) => post.category !== "Engineering" && post.category !== "Side Quests",
+  );
 
   const engineering = [
     ...(siteContent.engineering ?? []).map((item) => ({
@@ -84,9 +88,12 @@ const renderResearchPage = () => {
     ...visiblePosts.filter((post) => post.category === "Engineering"),
   ];
 
+  const sideQuests = visiblePosts.filter((post) => post.category === "Side Quests");
+
   renderSection("announcements-section", "announcements-list", announcements);
   renderSection("research-section", "research-list", researchPosts);
   renderSection("engineering-section", "engineering-list", engineering);
+  renderSection("side-quests-section", "side-quests-list", sideQuests);
 };
 
 renderResearchPage();

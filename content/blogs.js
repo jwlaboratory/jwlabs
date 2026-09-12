@@ -7,6 +7,95 @@ const markdown = (template) =>
 
 window.BLOG_POSTS = [
   {
+    slug: "will-ai-be-the-dj",
+    title: "DJing a club with an AI agent",
+    date: "2026-09-11",
+    category: "Side Quests",
+    authors: "Shrey Birmiwal",
+    noAbstract: true,
+    summary: "The DJ used to work behind the booth; now the DJ is the show. As AI comes for art and music, I don't think it comes for the DJ, because DJing is a social event, not just a technical one. So I tried to build one anyway: an agent that controls real DJ software over text and mixes songs on its own.",
+    markdown: markdown(() => { /*
+# DJing a club with an AI agent
+
+In the past year, I've gotten the wonderful opportunity to learn how to DJ music, fell in love with it, and gotten the opportunity to DJ many big parties and clubs in multiple parts of the United States ([shrekevents.vercel.app](https://shrekevents.vercel.app)). Recently, seeing how music, art, image, and video are changing with AI, I wonder how creativity will change in a post-AGI world. I think it's interesting and important to debate the place of AI in the arts and speculate on the future of this field. But first, let's step back into the history of DJing.
+
+## A History of DJing
+
+### The unknown DJ
+
+The role of the DJ, previously known as a disc jockey, was to take discs and seemingly transition between these discs as to not kill the energy and keep people dancing. Since no need existed for the DJ to be present, DJs were commonly actually hidden away, with only a small one-way window to see the crowd. The focus was on the dancing and connecting with each other on the dance floor, not looking at the DJ.
+
+At this time, it was very easy to point to DJing and call it an art. You needed to use your ears, which had been trained over hundreds of hours. You had to use style in picking your songs, and you had to use the touch in the hands to decide what ways to move the actual discs. Each DJ had their own unique style and way of performing. So very clearly, we could point to this and call it an art.
+
+### The performing DJ
+
+As time evolved, the DJ became more and more of a performer. The DJ became the centerpiece, what you would look at, and the entire crowd was facing the DJ as if it's a performance rather than something to set the mood to dance. Transitions became more flashy and technical, as the role of the DJ was to perform and not just to keep people moving. Take for example Tiesto in 2003 with his iconic performance, where he is clearly the center of focus.
+
+https://www.youtube.com/watch?v=EBlyssO7gyc
+
+My guess for why this shift happened was because of the advent of technology, people being able to share their experiences, which would have a longer impact than to share experiences in the moment with a friend. For example, being able to tell others that you attended this famous Tiesto concert would have a longer and higher aura gain than experiencing it in person with just the dancing with a friend. I think this has only shifted even more, now we have social media where it's almost essential to post every concert you go to or every event you attend because the legacy and the aura gained from attending an event far outweighs being present. I'm not critiquing this, as I'm a victim myself, but just sharing some guesses on what happened in this phase.
+
+### The hobby DJ
+
+Today, technology has advanced and tools such as Rekordbox, which have become the industry standard for DJing, have pretty much completed all of the hard work that we previously used to define DJing as an art. For example, beat matching, which used to be done by ear and required hours of training, can now be done with a simple sync button. Effects no longer require jittery hand movements such as scratching and instead can be done with a button click. Songs can be loaded from Spotify, crossfaded, and vocals can be completely isolated. Whether we can still call this an art is an interesting question.
+
+Below is a picture of a record box. You can see the amount of tech that has been included, which makes, some could say, the job of DJing very simple.
+
+![](/content/will-ai-be-the-dj/rekordbox-sync.png)
+
+## My take
+
+I first started DJing after I went to my first few freshman year fraternity parties. It's because I noticed something very simple. The DJs at these events were very good. They knew what they were doing; they knew and used every button on the decks.
+
+But they were just playing songs that I didn't want to hear. They were playing songs that were very EDM and very overly edited remixes of popular songs. In my eyes, all I wanted to hear was Katy Perry and hear old songs that I knew all the words to that I could sing and dance my heart out to. For some reason, it seemed like the DJs were afraid of playing the simple songs because they didn't want to seem like they didn't have a job to do. So they wanted to make it seem as complex as possible by playing remixes and doing fancy edits.
+
+It made sense to me, and even though everyone said that "the DJs are good" I knew secretly they would just prefer a Spotify jam with their favorite songs.
+
+So I decided to become the DJ myself. My first party I DJ'd, I basically just played songs out till completion and started the next song right after: no effects, transitions, or loops at all. Many people came up to me and told me I was the best DJ they had ever listened to. It was crazy to me that people genuinely did not notice that I did little to no transitions, but it made sense: when's the last time you judged a DJ based on the transitions (unless it's horrendous)? Almost always, you'll tell your friends, "that music was so good, it was all my favorite songs."
+
+It's clear to me song selection and reading the vibe is the real art. Some people have this art. Some people don't, and I know this because song reqs sometimes aren't what will satisfy the vibe. Transitions were never the art in question in my eyes.
+
+I think no matter what, DJing will always remain as a job. It's my backup career plan. Even if AI can do the transitions perfectly, it'll never have that secret intuition about what songs to play. When I DJ, I really look at people and try to imagine how they feel. What song will make them scream and let loose next? When I see the twinkle in the eyes of the people in the back I know I should let out a song they love and when they are looking lost I know to play a song that they'll (ironically) think (wow this is a great DJ) (this is actually counterintuitive: sometimes you want to play songs that make you seem like a good DJ, because the people themselves don't even know they want to hear the songs they really want to hear and think they are here for a performance, for their Instagram).
+
+## But can AI actually DJ?
+
+Even if AI isn't going to replace the DJ as a social role, could it actually do the job? Could an AI control real DJ software and mix songs on its own?
+
+I started by testing out GPT-6 Astra, because I'd seen it controlling desktops, playing music on digital pianos ([demo](https://www.linkedin.com/posts/oskar-neumann_yes-computer-use-with-gpt-6-astra-is-this-ugcPost-7501783660652679169-n-UY/)), and generally operating software the same way a person would, just by being told what to do in plain language.
+
+However, mixing isn't as simple, because it requires reading and moving waveforms, which requires listening, and constantly rebalancing the EQs of two tracks fighting over the same frequencies. So it requires some judgment calls, and also constant screenshots to be able to understand and keep up to date with the latest state.
+
+So instead of trying to get the computer-use model to work, I instead made a thin wrapper over the DJ software to create a text format that the model could actually ingest, and gave it tools in order to control the software.
+
+Code: [github.com/shreybirmiwal/dj](https://github.com/shreybirmiwal/dj)
+
+From there I just experimented and gave the agent more tools to basically keep on improving. Added features like loop-aware, phrasing-aware, lyrics-aware, and features like echo, reverb, highs, lows, mids, and stems access.
+
+I was actually very surprised by the quality. Here are some of the mixes it's created, which are genuinely very, very good in my opinion.
+
+```djmix
+[
+  {"title": "Waiting for Tonight × Ion Trust a Soul", "sub": "Jennifer Lopez × Disco Lines", "src": "/content/will-ai-be-the-dj/mix-01.mp3", "duration": 76},
+  {"title": "Love Story × Levels", "sub": "Taylor Swift × Avicii", "src": "/content/will-ai-be-the-dj/mix-02.mp3", "duration": 81},
+  {"title": "Dynamite × Die Young", "sub": "Taio Cruz × Kesha", "src": "/content/will-ai-be-the-dj/mix-03.mp3", "duration": 80},
+  {"title": "Party on My Mind × Only Girl (In the World)", "sub": "Hindi pop × Rihanna, multilingual mix", "src": "/content/will-ai-be-the-dj/mix-04.mp3", "duration": 79}
+]
+```
+
+Of course, there's still gaps in making them perfect, maybe adding more variation, more tools. But I think this clearly shows that perfecting an actual transition may not be the art, and it could be completed by a computer, deterministically.
+
+## Taking it to a real club
+
+But does this actually work? So I tested this out by playing a little bit of my set at 6th Street at Poor Choices using this AI model.
+
+![](/content/will-ai-be-the-dj/club-clip.mp4?player)
+
+*(Yes, I still brought my controller and Rekordbox to take over from the AI when needed, and yes, the AI isn't perfect, but it clearly shows potential.)*
+
+I didn't tell anybody, but people still danced exactly like they would to any other set. And to me, this makes me think, do people really care about the DJ? Or just the social experience that they're looking at somebody and they have a DJ present? Additionally, is my job as a DJ solely to pick the songs and control the vibe?
+*/ }),
+  },
+  {
     slug: "specialization-is-all-speculation-needs",
     title: "Specialization is (sometimes) all Speculation needs",
     date: "2026-07-23",

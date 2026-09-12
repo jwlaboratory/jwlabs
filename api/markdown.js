@@ -1,8 +1,8 @@
 // Plain-text endpoint that returns a post's raw markdown.
 //
-// Articles render client-side, so a normal fetch of /post/<slug> returns an
-// empty shell. This endpoint returns the actual article text as text/plain so
-// any AI (or curl) can read it directly, no JavaScript required.
+// Post pages are prerendered to static HTML at deploy (see build.js), but this
+// endpoint stays useful: it returns the article as text/plain so any AI (or
+// curl) can read it without parsing HTML.
 
 const fs = require("fs");
 const path = require("path");

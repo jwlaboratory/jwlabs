@@ -1,9 +1,14 @@
 {
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "functions": {
-    "api/markdown.js": { "includeFiles": "content/blogs.js" }
+    "api/markdown.js": { "includeFiles": "content/blogs.js" },
+    "api/post.js": {
+      "includeFiles": "{post.html,content/*.js,scripts/render-blog.js}"
+    }
   },
   "rewrites": [
-    { "source": "/post/:slug", "destination": "/post.html" },
+    { "source": "/post/:slug", "destination": "/api/post?id=:slug" },
     { "source": "/markdown/:slug", "destination": "/api/markdown?id=:slug" }
   ],
   "headers": [

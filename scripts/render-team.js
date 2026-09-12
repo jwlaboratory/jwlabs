@@ -61,6 +61,8 @@ const renderTeamPage = () => {
     return;
   }
 
+  // The page may arrive prerendered (see build.js); rebuild the list fresh.
+  list.replaceChildren();
   authors.forEach((author) => list.append(createAuthorRow(author)));
 };
 

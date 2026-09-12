@@ -1,0 +1,10 @@
+{
+  "name": "jwlabs-website",
+  "private": true,
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "linkedom": "^0.18.12"
+  }
+}

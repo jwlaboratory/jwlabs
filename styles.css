@@ -688,6 +688,184 @@ body[data-page="article"] .site-footer {
   text-rendering: optimizeLegibility;
 }
 
+.blog-content .youtube-embed {
+  position: relative;
+  margin: 24px 0;
+  padding-top: 56.25%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #000;
+}
+
+.blog-content .youtube-embed iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.blog-content .dj-mix-player {
+  margin: 24px 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #f8f8f8;
+  overflow: hidden;
+}
+
+.blog-content .dj-mix-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.blog-content .dj-mix-master-play {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.blog-content .dj-mix-master-play:hover {
+  border-color: #cccccc;
+}
+
+.blog-content .dj-mix-now-playing {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.blog-content .dj-mix-tracklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blog-content .dj-mix-track {
+  display: grid;
+  grid-template-columns: 32px 1fr 96px 84px;
+  grid-template-areas: "play info progress time";
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.blog-content .dj-mix-track:last-child {
+  border-bottom: none;
+}
+
+.blog-content .dj-mix-track.is-active {
+  background: #f0f0f0;
+}
+
+.blog-content .dj-mix-track-play {
+  grid-area: play;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.blog-content .dj-mix-track-play:hover {
+  border-color: #cccccc;
+}
+
+.blog-content .dj-mix-track-info {
+  grid-area: info;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.blog-content .dj-mix-track-title {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.blog-content .dj-mix-track.is-playing .dj-mix-track-title {
+  font-weight: 600;
+}
+
+.blog-content .dj-mix-track-sub {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.blog-content .dj-mix-track-progress {
+  grid-area: progress;
+  position: relative;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.blog-content .dj-mix-track-progress::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: #e4e4e4;
+  transform: translateY(-50%);
+}
+
+.blog-content .dj-mix-track-progress-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 3px;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--text);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.blog-content .dj-mix-track-time {
+  grid-area: time;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .blog-content .dj-mix-track {
+    grid-template-columns: 28px 1fr 56px;
+    grid-template-areas:
+      "play info time"
+      "progress progress progress";
+    row-gap: 8px;
+  }
+
+  .blog-content .dj-mix-track-progress {
+    height: 20px;
+  }
+}
+
 .blog-content .katex-display {
   margin: 0;
   padding: 4px 0 8px;
@@ -726,6 +904,12 @@ body[data-page="article"] .site-footer {
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+}
+
+.blog-content figure.figure-compact {
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .blog-content figcaption {

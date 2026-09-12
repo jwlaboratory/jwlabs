@@ -90,6 +90,14 @@ const preprocessPostMarkdown = (markdown = "", post = {}) => {
     break;
   }
 
+  if (post.noAbstract) {
+    return {
+      authors: authors.trim(),
+      abstractMarkdown: "",
+      bodyMarkdown: lines.slice(index).join("\n").trim(),
+    };
+  }
+
   while (index < lines.length && isSkippableLine(lines[index])) {
     index += 1;
   }
@@ -654,31 +662,41 @@ const createImage = (alt, src, fallbackSrc = "") => {
   const figure = document.createElement("figure");
 
   if (isVideoSource(src)) {
+    const isPlayer = /[?&]player\b/.test(src);
+    const videoSrc = src.replace(/[?&]player\b/, "");
     const video = document.createElement("video");
 
-    video.autoplay = true;
-    video.loop = true;
-    video.muted = true;
     video.playsInline = true;
     video.preload = "auto";
-    video.src = src;
-    video.setAttribute("autoplay", "");
-    video.setAttribute("loop", "");
-    video.setAttribute("muted", "");
+    video.src = videoSrc;
     video.setAttribute("playsinline", "");
     video.setAttribute("aria-label", alt);
 
-    const playVideo = () => {
-      const playPromise = video.play();
+    if (isPlayer) {
+      figure.classList.add("figure-compact");
+      video.controls = true;
+      video.setAttribute("controls", "");
+    } else {
+      video.autoplay = true;
+      video.loop = true;
+      video.muted = true;
+      video.setAttribute("autoplay", "");
+      video.setAttribute("loop", "");
+      video.setAttribute("muted", "");
 
-      if (playPromise) {
-        playPromise.catch(() => {});
-      }
-    };
+      const playVideo = () => {
+        const playPromise = video.play();
 
-    video.addEventListener("canplay", playVideo, { once: true });
+        if (playPromise) {
+          playPromise.catch(() => {});
+        }
+      };
+
+      video.addEventListener("canplay", playVideo, { once: true });
+      queueMicrotask(playVideo);
+    }
+
     figure.append(video);
-    queueMicrotask(playVideo);
 
     if (alt) {
       const caption = document.createElement("figcaption");
@@ -732,6 +750,359 @@ const resolveImageSource = ({ explicitSrc, referenceKey, references, post }) => 
     src: localSrc,
     fallbackSrc,
   };
+};
+
+const getYouTubeVideoId = (url = "") => {
+  const match = url.match(
+    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{6,})/,
+  );
+
+  return match ? match[1] : null;
+};
+
+const createYouTubeEmbed = (videoId) => {
+  const wrapper = document.createElement("div");
+  wrapper.className = "youtube-embed";
+
+  const iframe = document.createElement("iframe");
+  iframe.src = `https://www.youtube.com/embed/${videoId}`;
+  iframe.title = "YouTube video player";
+  iframe.loading = "lazy";
+  iframe.allow =
+    "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+  iframe.referrerPolicy = "strict-origin-when-cross-origin";
+  iframe.setAttribute("frameborder", "0");
+  iframe.setAttribute("allowfullscreen", "");
+
+  wrapper.append(iframe);
+  return wrapper;
+};
+
+const formatMixTime = (seconds = 0) => {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "0:00";
+  }
+
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+};
+
+const CROSSFADE_SECONDS = 3;
+
+// Streamed MP3s often report Infinity/NaN for `deck.duration` until fully
+// buffered, so prefer the known track duration and only trust the deck's
+// reported duration when it's an actual finite number.
+const getTrackDuration = (deck, track) => {
+  if (Number.isFinite(track?.duration) && track.duration > 0) {
+    return track.duration;
+  }
+  return Number.isFinite(deck.duration) ? deck.duration : 0;
+};
+
+const fadeAudioVolume = (audio, target, durationMs, onDone) => {
+  if (audio._fadeRaf) {
+    cancelAnimationFrame(audio._fadeRaf);
+  }
+
+  const start = audio.volume;
+  const startTime = performance.now();
+
+  const step = () => {
+    const elapsed = performance.now() - startTime;
+    const t = Math.min(1, durationMs <= 0 ? 1 : elapsed / durationMs);
+    audio.volume = start + (target - start) * t;
+
+    if (t < 1) {
+      audio._fadeRaf = requestAnimationFrame(step);
+    } else {
+      audio._fadeRaf = null;
+      if (onDone) onDone();
+    }
+  };
+
+  audio._fadeRaf = requestAnimationFrame(step);
+};
+
+const createDjMixPlayer = (tracks = []) => {
+  if (!Array.isArray(tracks) || !tracks.length) {
+    return document.createDocumentFragment();
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "dj-mix-player";
+  wrapper.setAttribute("role", "region");
+  wrapper.setAttribute("aria-label", "AI DJ mix outputs");
+
+  const header = document.createElement("div");
+  header.className = "dj-mix-header";
+
+  const masterPlay = document.createElement("button");
+  masterPlay.type = "button";
+  masterPlay.className = "dj-mix-master-play";
+  masterPlay.textContent = "▶ Play the set";
+
+  header.append(masterPlay);
+
+  const list = document.createElement("ol");
+  list.className = "dj-mix-tracklist";
+
+  const deckA = new Audio();
+  const deckB = new Audio();
+  deckA.preload = "none";
+  deckB.preload = "none";
+
+  const state = {
+    activeDeck: deckA,
+    idleDeck: deckB,
+    currentIndex: -1,
+    isPlaying: false,
+    crossfadeStarted: false,
+  };
+
+  const rows = tracks.map((track, i) => {
+    const row = document.createElement("li");
+    row.className = "dj-mix-track";
+    row.dataset.index = String(i);
+
+    const playBtn = document.createElement("button");
+    playBtn.type = "button";
+    playBtn.className = "dj-mix-track-play";
+    playBtn.setAttribute("aria-label", `Play ${track.title}`);
+    playBtn.textContent = "▶";
+
+    const info = document.createElement("div");
+    info.className = "dj-mix-track-info";
+
+    const title = document.createElement("span");
+    title.className = "dj-mix-track-title";
+    title.textContent = track.title;
+
+    const sub = document.createElement("span");
+    sub.className = "dj-mix-track-sub";
+    sub.textContent = track.sub || "";
+
+    info.append(title, sub);
+
+    const progress = document.createElement("div");
+    progress.className = "dj-mix-track-progress";
+    const fill = document.createElement("div");
+    fill.className = "dj-mix-track-progress-fill";
+    progress.append(fill);
+
+    const time = document.createElement("span");
+    time.className = "dj-mix-track-time";
+    time.textContent = formatMixTime(track.duration || 0);
+
+    row.append(playBtn, info, progress, time);
+    list.append(row);
+
+    return { row, playBtn, fill, time, progress };
+  });
+
+  const setRowPlayingState = (activeIndex, playing) => {
+    rows.forEach((r, i) => {
+      r.row.classList.toggle("is-active", i === activeIndex);
+      r.row.classList.toggle("is-playing", i === activeIndex && playing);
+      r.playBtn.textContent = i === activeIndex && playing ? "⏸" : "▶";
+    });
+  };
+
+  const resetRowProgress = (idx) => {
+    if (idx < 0 || idx >= rows.length) return;
+    rows[idx].fill.style.width = "0%";
+  };
+
+  const stopAll = () => {
+    [deckA, deckB].forEach((deck) => {
+      if (deck._fadeRaf) cancelAnimationFrame(deck._fadeRaf);
+      deck.pause();
+      deck.volume = 1;
+    });
+    state.isPlaying = false;
+    state.crossfadeStarted = false;
+    masterPlay.textContent = "▶ Play the set";
+    setRowPlayingState(-1, false);
+  };
+
+  const playTrackAt = (idx, { crossfadeFrom = null, startAt = 0 } = {}) => {
+    if (idx < 0 || idx >= tracks.length) {
+      stopAll();
+      return;
+    }
+
+    const nextDeck = crossfadeFrom ? state.idleDeck : state.activeDeck;
+    const track = tracks[idx];
+
+    if (!crossfadeFrom) {
+      state.idleDeck.pause();
+    }
+
+    if (startAt > 0) {
+      nextDeck.addEventListener(
+        "loadedmetadata",
+        () => {
+          nextDeck.currentTime = startAt;
+        },
+        { once: true },
+      );
+    }
+
+    nextDeck.src = track.src;
+    nextDeck.currentTime = startAt;
+    nextDeck.volume = 0;
+
+    const playPromise = nextDeck.play();
+    if (playPromise) playPromise.catch(() => {});
+
+    fadeAudioVolume(nextDeck, 1, crossfadeFrom ? CROSSFADE_SECONDS * 1000 : 400);
+
+    if (crossfadeFrom) {
+      fadeAudioVolume(crossfadeFrom, 0, CROSSFADE_SECONDS * 1000, () => {
+        crossfadeFrom.pause();
+        crossfadeFrom.currentTime = 0;
+      });
+    }
+
+    state.activeDeck = nextDeck;
+    state.idleDeck = crossfadeFrom || (nextDeck === deckA ? deckB : deckA);
+    state.currentIndex = idx;
+    state.isPlaying = true;
+    state.crossfadeStarted = false;
+
+    masterPlay.textContent = "⏸ Pause the set";
+    setRowPlayingState(idx, true);
+    resetRowProgress(idx);
+  };
+
+  const handleTimeUpdate = () => {
+    const deck = state.activeDeck;
+    const idx = state.currentIndex;
+
+    if (idx < 0 || !rows[idx]) return;
+
+    const duration = getTrackDuration(deck, tracks[idx]);
+    const currentTime = deck.currentTime || 0;
+
+    if (duration > 0) {
+      rows[idx].fill.style.width = `${Math.min(100, (currentTime / duration) * 100)}%`;
+    }
+    rows[idx].time.textContent = `${formatMixTime(currentTime)} / ${formatMixTime(duration)}`;
+
+    if (
+      !state.crossfadeStarted &&
+      duration > 0 &&
+      duration - currentTime <= CROSSFADE_SECONDS &&
+      idx + 1 < tracks.length
+    ) {
+      state.crossfadeStarted = true;
+      playTrackAt(idx + 1, { crossfadeFrom: deck });
+    }
+  };
+
+  const handleEnded = () => {
+    if (state.currentIndex + 1 >= tracks.length) {
+      stopAll();
+    }
+  };
+
+  const seekTrack = (idx, fraction) => {
+    const track = tracks[idx];
+    const clampedFraction = Math.min(1, Math.max(0, fraction));
+
+    if (state.currentIndex === idx) {
+      const duration = getTrackDuration(state.activeDeck, track);
+      const targetTime = clampedFraction * duration;
+
+      state.activeDeck.currentTime = targetTime;
+      state.crossfadeStarted = false;
+
+      rows[idx].fill.style.width = duration > 0 ? `${clampedFraction * 100}%` : "0%";
+      rows[idx].time.textContent = `${formatMixTime(targetTime)} / ${formatMixTime(duration)}`;
+      return;
+    }
+
+    const targetTime = clampedFraction * (track.duration || 0);
+    stopAll();
+    playTrackAt(idx, { startAt: targetTime });
+  };
+
+  [deckA, deckB].forEach((deck) => {
+    deck.addEventListener("timeupdate", () => {
+      if (deck === state.activeDeck) handleTimeUpdate();
+    });
+    deck.addEventListener("ended", () => {
+      if (deck === state.activeDeck) handleEnded();
+    });
+  });
+
+  masterPlay.addEventListener("click", () => {
+    if (state.isPlaying) {
+      state.activeDeck.pause();
+      state.isPlaying = false;
+      masterPlay.textContent = "▶ Resume the set";
+      setRowPlayingState(state.currentIndex, false);
+      return;
+    }
+
+    if (state.currentIndex >= 0 && state.activeDeck.src) {
+      const playPromise = state.activeDeck.play();
+      if (playPromise) playPromise.catch(() => {});
+      state.isPlaying = true;
+      masterPlay.textContent = "⏸ Pause the set";
+      setRowPlayingState(state.currentIndex, true);
+      return;
+    }
+
+    playTrackAt(0);
+  });
+
+  rows.forEach((r, i) => {
+    r.playBtn.addEventListener("click", () => {
+      if (state.currentIndex === i && state.isPlaying) {
+        state.activeDeck.pause();
+        state.isPlaying = false;
+        masterPlay.textContent = "▶ Resume the set";
+        setRowPlayingState(i, false);
+        return;
+      }
+
+      if (state.currentIndex === i && !state.isPlaying) {
+        const playPromise = state.activeDeck.play();
+        if (playPromise) playPromise.catch(() => {});
+        state.isPlaying = true;
+        masterPlay.textContent = "⏸ Pause the set";
+        setRowPlayingState(i, true);
+        return;
+      }
+
+      stopAll();
+      playTrackAt(i);
+    });
+
+    const seekFromPointer = (evt) => {
+      const rect = r.progress.getBoundingClientRect();
+      const fraction = rect.width > 0 ? (evt.clientX - rect.left) / rect.width : 0;
+      seekTrack(i, fraction);
+    };
+
+    r.progress.addEventListener("pointerdown", (evt) => {
+      evt.preventDefault();
+      seekFromPointer(evt);
+
+      const onMove = (moveEvt) => seekFromPointer(moveEvt);
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, { once: true });
+    });
+  });
+
+  wrapper.append(header, list);
+  return wrapper;
 };
 
 const createTable = (rows) => {
@@ -863,9 +1234,29 @@ const renderMarkdown = (markdown = "", post = {}, usedHeadingIds = new Set()) =>
         index += 1;
       }
 
-      fragment.append(createCodeBlock(codeLines, codeMatch[1]));
+      if (codeMatch[1] === "djmix") {
+        try {
+          const tracks = JSON.parse(codeLines.join("\n"));
+          fragment.append(createDjMixPlayer(tracks));
+        } catch (error) {
+          fragment.append(createCodeBlock(codeLines, codeMatch[1]));
+        }
+      } else {
+        fragment.append(createCodeBlock(codeLines, codeMatch[1]));
+      }
+
       index += 1;
       continue;
+    }
+
+    const youTubeMatch = rawLine.trim().match(/^https?:\/\/\S+$/);
+    if (youTubeMatch) {
+      const videoId = getYouTubeVideoId(rawLine.trim());
+      if (videoId) {
+        fragment.append(createYouTubeEmbed(videoId));
+        index += 1;
+        continue;
+      }
     }
 
     const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
@@ -1005,6 +1396,9 @@ const buildTableOfContents = (articleRoot) => {
     tocNav.hidden = true;
     return;
   }
+
+  // Drop any prerendered copy of the TOC before rebuilding it.
+  tocScroll.replaceChildren();
 
   const rootList = document.createElement("ul");
   rootList.className = "toc-list";
@@ -1158,6 +1552,9 @@ const renderArticlePage = () => {
   postNode
     .querySelector(".blog-body")
     .append(renderMarkdown(bodyMarkdown, post, headingIds));
+  // The page may arrive prerendered (see build.js); replace that markup so the
+  // article always carries live event listeners.
+  postRoot.replaceChildren();
   postRoot.append(postNode);
   buildTableOfContents(postRoot);
   ensureMathStylesheet();
