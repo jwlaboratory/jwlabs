@@ -1195,6 +1195,42 @@ This was a really really fun experiment. I hope you had as much fun reading it a
 */ }),
   },
   {
+    slug: "poolpro",
+    title: "Using CV and a projector to help me play billiards",
+    date: "2026-09-15",
+    category: "Side Quests",
+    authors: "Shrey Birmiwal and Avi Agrawal",
+    noAbstract: true,
+    markdown: markdown(() => { /*
+# Using CV and a projector to help me play billiards
+By Shrey Birmiwal and Avi Agrawal
+
+Me and my roommates at UT Austin lucked out and got assigned an apartment with a pool table instead of a dining table. Sounds great but I SUCK at the game while my roommates somehow get super lucky and always beat me.
+
+I recently saw someone on YouTube build a system using a camera and a projector to make a real life pool more like a game pigeon, so we decided to build something similar. Also, I wanted to test how autonomous a model like GPT Sol could be given a camera and projector to work in a loop /goal and build the entire project.
+
+![Caption: Shrey and Avi after taping Shrey’s phone to the roof](/content/poolpro/building-cam.jpg)
+
+First we taped Shrey’s phone to the roof directly above the pool table. The idea was to use the iPhone continuous camera feature to stream to the MacBook. For some reason, GPT struggled a lot when trying to get the stream to work, but I digress. We got this running a model to detect the pool balls and the stick.
+
+![](/content/poolpro/projector.JPG)
+
+Next we taped the projector at an angle to the ceiling. We tried lots of angles and different positions (like putting on a shelf, putting on 3 stacked chairs) but this was really the only way it would project cleanly onto the board.
+
+![](/content/poolpro/building-projections.jpg)
+
+Then we made the projection normalized. The projector was set to output a grid (which initially was completely off because of the angle and trapezoid features of the projector), but after tuning, we created a virtual mapping from the projector output to the flat pool table.
+
+This was super cool! Maybe I can finally win a game now lol.
+
+Check it out:
+
+![](/content/poolpro/result.MOV?player)
+
+Code: [https://github.com/jwlaboratory/poolpro](https://github.com/jwlaboratory/poolpro)
+*/ }),
+  },
+  {
     slug: "specialization-is-all-speculation-needs",
     title: "Specialization is (sometimes) all Speculation needs",
     date: "2026-07-23",
