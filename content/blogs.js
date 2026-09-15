@@ -492,19 +492,19 @@ Our tokenizer gave us a vector of numbers representing the IDs of each token. Ne
 
 The embeddings tell the model the meaning of each token, but it tells the model nothing about the position of each token. For example, if the word yellow appears at the start and at the end of the sentence, this looks identical to the model. So next we apply an addition of a positional vector, unique per position but the same for all tokens, that internally uses sine and cosine to be rotatory in nature to represent the location of each word.
 
-Now we have a \[sequence x d\_model\] representation that contains information about the tokens, the meaning, and the location of each token.
+Now we have a [sequence x d_model] representation that contains information about the tokens, the meaning, and the location of each token.
 
 ### The attention block
 
-Next, this \[sequence x d\_model\] representing the token goes through 12 back to back attention blocks. Let’s look at what this is:
+Next, this [sequence x d_model] representing the token goes through 12 back to back attention blocks. Let’s look at what this is:
 
 ![jwLLM transformer block architecture with layer normalization, attention, MLP, and residual connections](/content/jwllm-part1/image2.png)
 
-You’ll see the at each stage the dimensions remain the same (even though they may be internally transformed) from \[seq, model\]. You’ll also see this residual that keeps the original value summated throughout like a loop. Let’s dive into each piece we composed in this picture next.
+You’ll see the at each stage the dimensions remain the same (even though they may be internally transformed) from [seq, model]. You’ll also see this residual that keeps the original value summated throughout like a loop. Let’s dive into each piece we composed in this picture next.
 
 ### Layer Norm
 
-LayerNorm’s goal is to make all the data per row be standardized. It does this by normalizing each row to mean \= 0, variance \= 1, then scaling by gamma and shifting by beta. Eps is added to the denominator when making the variance zero to prevent dividing by zero. What helped me understand this part was remembering the Z-Score formula from high school stats.
+LayerNorm’s goal is to make all the data per row be standardized. It does this by normalizing each row to mean = 0, variance = 1, then scaling by gamma and shifting by beta. Eps is added to the denominator when making the variance zero to prevent dividing by zero. What helped me understand this part was remembering the Z-Score formula from high school stats.
 
 ```cpp
 // normalize each row to mean 0 / variance 1, then scale by gamma and shift by beta  
