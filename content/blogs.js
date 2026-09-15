@@ -558,7 +558,7 @@ We run this layernorm constantly throughout the model, notably before each atten
 
 Attention is the key work that makes this whole language model work. We first create Q, K, V, split by head, then do the self attention equation over each head, then finally concat.
 
-I’m going to defer to a better source to explain the meaning and how this works internally. What really helped me was the video by Umal Jamil on transformers, found here: [https://www.youtube.com/watch?v=ISNdQcPhsts](https://www.youtube.com/watch?v=ISNdQcPhsts) and [https://www.youtube.com/watch?v=bCz4OMemCcA](https://www.youtube.com/watch?v=bCz4OMemCcA)
+I’m going to defer to a better source to explain the meaning and how this works internally. What really helped me was the video by Umar Jamil on transformers, found here: [https://www.youtube.com/watch?v=ISNdQcPhsts](https://www.youtube.com/watch?v=ISNdQcPhsts) and [https://www.youtube.com/watch?v=bCz4OMemCcA](https://www.youtube.com/watch?v=bCz4OMemCcA)
 
 ```cpp
 Matrix Attention::forward(const Matrix &x)  
@@ -915,7 +915,107 @@ Matrix Matrix::mask\_causal(float big\_negative) const
 
 ### MLP
 
+The MLP (multi layer perceptron) is the next part in the transformer block. People commonly think the transformer is all the weights of the model, but in reality this part contains a huge amount of the compute and weights.
+
+The MLP takes the incoming data, projects into a higher dimensionality, applies a non linearity, then projects back into the small space.
+
+What made me understand this was thinking about how low rank factorization worked ([which I wrote about here](https://jwlabs.vercel.app/post/sparklingtree)), and how this inverses it to get better (instead of less) control of how data can be separated.
+
+```cpp
+\#include "mlp.hpp"  
+\#include \<stdexcept\>
+
+MLP::MLP(SafeTensors &weights, const std::string &prefix)  
+{  
+   FC\_WEIGHTS \= weights.get(prefix \+ "mlp.c\_fc.weight");  
+   FC\_BIAS \= weights.get(prefix \+ "mlp.c\_fc.bias");  
+   PROJECTION\_WEIGHTS \= weights.get(prefix \+ "mlp.c\_proj.weight");  
+   PROJECTION\_BIAS \= weights.get(prefix \+ "mlp.c\_proj.bias");  
+}
+
+Matrix MLP::forward(const Matrix &x) const  
+{  
+   //\[seq, dmodel\]
+
+   // same idea as  low rank facotirzation But INVERSED. we project into big zone so we can seperate, then project done  
+   Matrix widened \= x.multiply(FC\_WEIGHTS).broadcast\_add\_row(FC\_BIAS);
+
+   widened \= widened.gelu();
+
+   Matrix shrunk \= widened.multiply(PROJECTION\_WEIGHTS).broadcast\_add\_row(PROJECTION\_BIAS);
+
+   return shrunk;
+
+   // note. a LOT OF THE PARAMS live here. this is a HEAVY spot, very important  
+   // without non linearity this would be waste of time  
+}
+
+```
+
 ### Convert to logits, sample, and decode
+
+The final part\! We need to take this [seq, d_model] and turn it into something that is useful, the next token\!
+
+Recall at the start we indexed the tokid:embedding table. Now, we multiply by the transpose of the embedding table [dmodel, vocab], to get a table that shows [seq, vocab]. The last row tells us the scores of each vocab[i] position! 
+
+We sample from this (you can use things like temperature, top-p, nucleus, etc) but in this simple case we use argmax to get the top score and greedily decode it. We convert it back to a string and output it.
+
+```cpp
+Matrix GPT::forward(const std::vector\<int\> &token\_ids)  
+{  
+   if (token\_ids.empty())  
+   {  
+       throw std::invalid\_argument("forward needs at least one token");  
+   }
+
+   // \[seq, dmodel\]  
+   Matrix x \= embedding.tokenized\_to\_embed(token\_ids);  
+   embedding.apply\_positional\_encoding(x);
+
+   for (TransformerBlock &block : blocks)  
+   {  
+       x \= block.forward(x);  
+   }
+
+   x \= x.layernorm(LN\_F\_WEIGHT, LN\_F\_BIAS);  
+   return x.multiply(WTE\_T); // back to vocab size  
+}
+
+int GPT::next\_token(const std::vector\<int\> &token\_ids)  
+{  
+   Matrix logits \= forward(token\_ids);
+
+   // arg max for now  
+   int last \= (logits.rows \- 1) \* logits.cols;  
+   int best \= 0;  
+   for (int j \= 1; j \< logits.cols; j\++)  
+   {  
+       if (logits.data\[last \+ j\] \> logits.data\[last \+ best\])  
+       {  
+           best \= j;  
+       }  
+   }  
+   return best;  
+}
+
+std::vector\<int\> GPT::generate(std::vector\<int\> token\_ids, int max\_new)  
+{  
+   for (int i \= 0; i \< max\_new; i\++)  
+   {  
+       if ((int)token\_ids.size() \>= MAX\_POSITIONS)  
+       {  
+           break;  
+       }  
+       int next \= next\_token(token\_ids);  
+       if (next \== EOT\_TOKEN)  
+       {  
+           break;  
+       }  
+       token\_ids.push\_back(next);  
+   }  
+   return token\_ids;  
+}
+```
 
 # Fin
 
