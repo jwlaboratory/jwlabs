@@ -22,7 +22,7 @@ window.BLOG_POSTS = [
 
 Computer use is a newer way of using large language models. Instead of using a chatbot window to interact with LLMs, computer use gives your model control of your mouse and keyboard to complete tasks for you. It typically works like this:
 
-![A computer-use model repeatedly observes the screen, reasons, plans an action, and operates the mouse or keyboard](/content/computer-use-interrupts/agent-loop.svg?no-caption)
+![A handwritten diagram showing the computer-use loop from screenshot and HTML reading to reasoning, acting with the keyboard and mouse, and observing again](/content/computer-use-interrupts/agent-loop.png?no-caption)
 
 Sometimes you may encounter a page or application that requires waiting, for example, waiting for a video to buffer or a webpage to load. If the website is programmed nicely (and likely simply!), you can repeatedly read its HTML until the button or part of the page that you need has loaded.
 
@@ -42,7 +42,7 @@ Eventually, the page loads and Claude gets the data it needs. However, this wast
 
 First, polling wastes time because the page can load between checks. If Claude polls every ten seconds and the page loads at the 13-second mark, it waits another seven seconds before noticing.
 
-![A page loading between polling checks leaves delay](/content/computer-use-interrupts/polling-delay.svg)
+![A page loading between polling checks leaves delay](/content/computer-use-interrupts/polling-delay.png)
 
 Second, it muddies the context and plan. Repeatedly thinking about “is the page loaded yet?” can make the model lose track of why it needed to read the page in the first place.
 
@@ -68,11 +68,11 @@ Because this model’s job is not to think, understand english and other languag
 
 When this tiny model polls and determines the page has reached the next state, it can ping the large, main model (similar to an interrupt).
 
-![The main computer-use model hands waiting off to a tiny local watcher, which interrupts it when the page is ready](/content/computer-use-interrupts/interrupt-flow.svg)
+![A handwritten sketch of the main model polling while a page loads, then continuing after the state changes](/content/computer-use-interrupts/interrupt-flow.png)
 
 This keeps the big model away from spending tokens and time on checking things like if the page has loaded.
 
-## A 9,000-parameter proof of concept
+## Training a tiny "BRR" model and MCP for Claude-in-CHrome
 
 I trained a tiny CNN in NumPy with only 9,000 parameters and about 40 KB of weights. It trained in under a minute on my MacBook and classifies a frame as **loaded** or **pending** in a few milliseconds, so it could potentially run hundreds of checks per second and deliver subsecond interrupts.
 
