@@ -1221,7 +1221,7 @@ Next we taped the projector at an angle to the ceiling. We tried lots of angles 
 
 Then we made the projection normalized. The projector was set to output a grid (which initially was completely off because of the angle and trapezoid features of the projector), but after tuning, we created a virtual mapping from the projector output to the flat pool table.
 
-This was super cool! Maybe I can finally win a game now lol.
+Finally added the software to predict the next ball and the bounce. In the future we can add stuff like score keeping, game modes (floor is lava), best defense spots, etc. Pretty cool project, even though It's definitely not a novel project. Even cooler to see that GPT basically did all the code even though it needed some coaxing and real world help (aligning, calibration etc).
 
 Check it out:
 
