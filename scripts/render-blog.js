@@ -671,6 +671,7 @@ const createImage = (alt, src, fallbackSrc = "") => {
     video.playsInline = true;
     video.preload = "auto";
     video.src = videoSrc;
+    video.setAttribute("src", videoSrc);
     video.setAttribute("playsinline", "");
     video.setAttribute("aria-label", alt);
 

@@ -42,8 +42,7 @@ The code for this project can be found here: [https://github.com/jwlaboratory/jw
 
 Before we get to do any of the cool optimizations; we must make the engine work (albeit slow\!). Here’s a end demo of what we’ll have running by the end of this blog:
 
-/Users/shreybirmiwal/Downloads/DEMO.mov  
-*Caption: jwLLM runs GPT2 at .2 tok/sec on a macbook m4 pro\!*
+![Caption: jwLLM runs GPT2 at .2 tok/sec on a macbook m4 pro!](/content/making-an-inference-engine-entirely-in-cpp-jwllm/DEMO.mov?wide-player)
 
 ## Tokenizer
 
