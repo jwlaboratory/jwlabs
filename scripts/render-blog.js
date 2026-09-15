@@ -661,6 +661,11 @@ const isVideoSource = (src = "") => /\.(mp4|webm|mov)(?:[?#].*)?$/i.test(src);
 const createImage = (alt, src, fallbackSrc = "") => {
   const figure = document.createElement("figure");
   const hideCaption = /[?&]no-caption\b/.test(src);
+  const isSmallImage = /[?&]small\b/.test(src);
+
+  if (isSmallImage) {
+    figure.classList.add("figure-image-compact");
+  }
 
   if (isVideoSource(src)) {
     const isWidePlayer = /[?&]wide-player\b/.test(src);

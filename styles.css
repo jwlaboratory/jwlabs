@@ -913,6 +913,12 @@ body[data-page="article"] .site-footer {
   text-align: left;
 }
 
+.blog-content figure.figure-image-compact {
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .blog-content figcaption {
   margin-top: 12px;
   color: var(--muted);
