@@ -556,6 +556,363 @@ We run this layernorm constantly throughout the model, notably before each atten
 
 ### Attention
 
+Attention is the key work that makes this whole language model work. We first create Q, K, V, split by head, then do the self attention equation over each head, then finally concat.
+
+I’m going to defer to a better source to explain the meaning and how this works internally. What really helped me was the video by Umal Jamil on transformers, found here: [https://www.youtube.com/watch?v=ISNdQcPhsts](https://www.youtube.com/watch?v=ISNdQcPhsts) and [https://www.youtube.com/watch?v=bCz4OMemCcA](https://www.youtube.com/watch?v=bCz4OMemCcA)
+
+```cpp
+Matrix Attention::forward(const Matrix &x)  
+{  
+   // lets create k, q, v  
+   // fused multiplication intuition
+
+   // x= 3x10 (3 seq len, dmodel=10)  
+   // fused \= 10x10 but 3 stacked HORiZONTALLY, so its 10x30
+
+   // output 10x30  
+   // Q \= Y\[:, 0:10\] K \= Y\[:, 10:20\] V \= Y\[:, 20:30\]  
+   Matrix FusedQKV \= (x.multiply(ATTENTION\_WEIGHTS)).broadcast\_add\_row(ATTENTION\_BIAS);
+
+   Matrix Q \= FusedQKV.slice\_cols(0, dmodel);  
+   Matrix K \= FusedQKV.slice\_cols(dmodel, dmodel);  
+   Matrix V \= FusedQKV.slice\_cols(dmodel \* 2, dmodel);  
+   // shape is \[seqlen, d\_model\]
+
+   // now, we need to do spliting  
+   int d\_head \= dmodel / heads;
+
+   // say we have 4 heads and dmodel of 16  
+   // 0-4, 4-8, 8-12, 12-16  
+   // 0,   1,   2,    3  
+   Matrix output;  
+   for (int h \= 0; h \< heads; h\++)  
+   {  
+       Matrix q\_head \= Q.slice\_cols(h \* d\_head, d\_head);  
+       Matrix k\_head \= K.slice\_cols(h \* d\_head, d\_head);  
+       Matrix v\_head \= V.slice\_cols(h \* d\_head, d\_head);  
+       // shape is \[seq, dhead\]
+
+       // transpose k  
+       Matrix k\_t \= k\_head.transpose(); //\[dhead, seq\]
+
+       Matrix Q\_kt \= q\_head.multiply(k\_t); //\[seq, seq\]  
+       // tells us how much each entry in x relates to x, in that zone of embedding focus
+
+       // divide by the sqrt d\_k  
+       Matrix pre\_mask \= Q\_kt.multiply\_scalar(1 / std::sqrt(d\_head));  
+       Matrix masked \= pre\_mask.mask\_causal();  
+       Matrix softmaxed \= masked.softmax\_rows(); // still \[seq, seq\]
+
+       Matrix post\_v \= softmaxed.multiply(v\_head);  
+       // \[seq,seq\] \* \[seq, dhead\]  
+       // now back to \[seq, dhead\]
+
+       // append  
+       if (h \== 0)  
+           output \= post\_v;
+
+       else  
+           output \= output.concat\_cols(post\_v);  
+   }
+
+   // do the projections  
+   return output.multiply(PROJECTION\_WEIGHTS).broadcast\_add\_row(PROJECTION\_BIAS);  
+   //\[seq, dmodel\]  
+}
+```
+
+I’ve also included the key code for the matrix helpers (slice\_cols, concat\_cols, and softmax) below, but they are pretty self explanatory.
+
+```cpp
+Matrix Matrix::multiply(const Matrix &other) const  
+{  
+   // check dims  
+   if (cols \!= other.rows)  
+       throw std::invalid\_argument("dims dont match");
+
+   // do actual multiplication  
+   std::vector\<float\> out(rows \* other.cols);
+
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {  
+       // for each row
+
+       for (int q \= 0; q \< other.cols; q\++)  
+       {  
+           // each col of the other now  
+           float sum \= 0;  
+           for (int g \= 0; g \< this\-\>cols; g\++)  
+           {  
+               sum \+= this\-\>data\[i \* this\-\>cols \+ g\] \* other.data\[g \* other.cols \+ q\];  
+           }
+
+           out\[i \* other.cols \+ q\] \= sum;  
+       }  
+   }
+
+   return Matrix(rows, other.cols, out);  
+}
+
+Matrix Matrix::addition(const Matrix &other) const  
+{  
+   // check dims  
+   if (cols \!= other.cols || rows \!= other.rows)  
+       throw std::invalid\_argument("dims dont match");
+
+   // do actual addition  
+   std::vector\<float\> out(data.size());  
+   for (int i \= 0; i \< data.size(); i\++)  
+   {  
+       out\[i\] \= this\-\>data\[i\] \+ other.data\[i\];  
+   }
+
+   return Matrix(rows, cols, out);  
+}
+
+Matrix Matrix::transpose() const  
+{  
+   // we store row x col  
+   // we need to swap to col x row
+
+   // ie transpose:  
+   // \[a,b,c,d,e,f\]  
+   // 2x3 \--\> 3x2  
+   //\[a, d, b, e, c, f\]
+
+   // 0,1 \--\> 1,0  
+   //
+
+   vector\<float\> out(this\-\>data.size());  
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           int newRow \= g;  
+           int newCol \= i;  
+           int total\_per\_row\_new \= this\-\>rows;
+
+           out\[newRow \* total\_per\_row\_new \+ newCol\] \= this\-\>data\[i \* this\-\>cols \+ g\];  
+       }  
+   }  
+   return Matrix(this\-\>cols, this\-\>rows, out);  
+}
+
+Matrix Matrix::multiply\_scalar(float scalar) const  
+{  
+   vector\<float\> out(this\-\>data.size());  
+   for (int i \= 0; i \< this\-\>data.size(); i\++)  
+   {  
+       out\[i\] \= this\-\>data\[i\] \* scalar;  
+   }  
+   return Matrix(this\-\>rows, this\-\>cols, out);  
+}
+
+Matrix Matrix::gelu() const  
+{  
+   vector\<float\> out(this\-\>data.size());  
+   for (int i \= 0; i \< this\-\>data.size(); i\++)  
+   {  
+       float x \= this\-\>data\[i\];  
+       out\[i\] \= 0.5f \* x \* (1.0f \+ std::tanh(0.7978845608f \* (x \+ 0.044715f \* x \* x \* x)));  
+   }  
+   return Matrix(this\-\>rows, this\-\>cols, out);  
+}
+
+Matrix Matrix::broadcast\_add\_row(const Matrix &row) const  
+{  
+   // we have a matrix \[seqlen x dmodel\]  
+   // we want to add a bias of size \[dmodel\]  
+   // we broadcast so this adds to each row
+
+   if (row.rows \!= 1 || this\-\>cols \!= row.cols)  
+   {  
+       throw std::invalid\_argument("to broadcast add, must be row size \=1");  
+   }
+
+   vector\<float\> out(this\-\>data.size());
+
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           out\[i \* this\-\>cols \+ g\] \= this\-\>data\[i \* this\-\>cols \+ g\] \+ row.data\[g\];  
+       }  
+   }  
+   return Matrix(this\-\>rows, this\-\>cols, out);  
+}
+
+Matrix Matrix::broadcast\_multiply\_row(const Matrix &row) const  
+{  
+   if (row.rows \!= 1 || this\-\>cols \!= row.cols)  
+   {  
+       throw std::invalid\_argument("to broadcast add, must be row size \=1");  
+   }
+
+   vector\<float\> out(this\-\>data.size());
+
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           out\[i \* this\-\>cols \+ g\] \= this\-\>data\[i \* this\-\>cols \+ g\] \* row.data\[g\];  
+       }  
+   }  
+   return Matrix(this\-\>rows, this\-\>cols, out);  
+}
+
+Matrix Matrix::softmax\_rows() const  
+{
+
+   vector\<float\> out(this\-\>data.size());
+
+   // loop 0: for each row  
+   for (int row \= 0; row \< this\-\>rows; row\++)  
+   {
+
+       // loop one: find max val in the row  
+       float max \= this\-\>data\[row \* this\-\>cols \+ 0\];  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           if (this\-\>data\[row \* this\-\>cols \+ g\] \> max)  
+           {  
+               max \= this\-\>data\[row \* this\-\>cols \+ g\];  
+           }  
+       }
+
+       // loop 2: calc sum and set each index to the e^(si-max)  
+       float sum\_of\_all \= 0;  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           out\[row \* this\-\>cols \+ g\] \= std::exp(this\-\>data\[row \* this\-\>cols \+ g\] \- max);  
+           sum\_of\_all \+= out\[row \* this\-\>cols \+ g\];  
+       }
+
+       // loop 3: divide all by sum  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           out\[row \* this\-\>cols \+ g\] /= sum\_of\_all;  
+       }  
+   }
+
+   return Matrix(this\-\>rows, this\-\>cols, out);  
+}
+
+// given a matrix, give the data in col start, start+1, start+2... start+len  
+Matrix Matrix::slice\_cols(int start, int len) const  
+{  
+   if (start \< 0 || len \<= 0 || start \+ len \> this\-\>cols)  
+       throw std::invalid\_argument("slice out of range");
+
+   vector\<float\> out(this\-\>rows \* len);  
+   int index \= 0;  
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           if (start \<= g && g \< start \+ len)  
+           {  
+               out\[index\] \= this\-\>data\[i \* this\-\>cols \+ g\];  
+               index\++;  
+           }  
+       }  
+   }  
+   return Matrix(this\-\>rows, len, out);  
+}
+
+Matrix Matrix::concat\_cols(const Matrix &other) const  
+{
+
+   if (other.rows \!= this\-\>rows)  
+   {  
+       throw std::invalid\_argument("got to have same rows for concat");  
+   }
+
+   vector\<float\> out(this\-\>data.size() \+ other.data.size());  
+   int max\_len \= this\-\>cols \+ other.cols;
+
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {  
+       for (int g \= 0; g \< max\_len; g\++)  
+       {  
+           if (g \< this\-\>cols)  
+           {  
+               out\[i \* max\_len \+ g\] \= this\-\>data\[i \* this\-\>cols \+ g\];  
+           }  
+           else  
+           {  
+               out\[i \* max\_len \+ g\] \= other.data\[i \* other.cols \+ g \- this\-\>cols\];  
+           }  
+       }  
+   }  
+   return Matrix(this\-\>rows, max\_len, out);  
+}  
+// normalize each row to mean 0 / variance 1, then scale by gamma and shift by beta  
+Matrix Matrix::layernorm(const Matrix &gamma, const Matrix &beta, float eps) const  
+{
+
+   vector\<float\> out(this\-\>data.size());
+
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {
+
+       // for each row  
+       float mean \= 0;  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           mean \+= this\-\>data\[i \* this\-\>cols \+ g\];  
+       }  
+       mean /= this\-\>cols;
+
+       float var \= 0;  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           float diff \= this\-\>data\[i \* this\-\>cols \+ g\] \- mean;  
+           var \+= diff \* diff;  
+       }  
+       var /= this\-\>cols;  
+       // vaiance is difference^2) averaged out  
+       // variance is sigma (standard deviation squared)
+
+       // z sciore \- (x-u)/sigma  
+       // we basically calcualting this
+
+       // eps to pevent divide by zero
+
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           out\[i \* this\-\>cols \+ g\] \= (this\-\>data\[i \* this\-\>cols \+ g\] \- mean) / std::sqrt(var \+ eps);  
+       }  
+   }
+
+   // beta and gamma are learned so model decides what to expand. gamma is sscaler, beta is additive. //eps is to prevent divide by zero  
+   Matrix out\_m \= Matrix(this\-\>rows, this\-\>cols, out);  
+   return (out\_m.broadcast\_multiply\_row(gamma)).broadcast\_add\_row(beta);  
+}
+
+Matrix Matrix::mask\_causal(float big\_negative) const  
+{  
+   vector\<float\> out(this\-\>data.size());
+
+   if (this\-\>rows \!= this\-\>cols)  
+   {  
+       throw std::invalid\_argument("must be a square matrix");  
+   }
+
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {
+
+           if (g \> i)  
+               out\[i \* this\-\>cols \+ g\] \= big\_negative;  
+           else  
+               out\[i \* this\-\>cols \+ g\] \= this\-\>data\[i \* this\-\>cols \+ g\];  
+       }  
+   }  
+   return Matrix(this\-\>rows, this\-\>cols, out);  
+}
+```
+
 ### MLP
 
 ### Convert to logits, sample, and decode
