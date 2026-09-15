@@ -44,6 +44,12 @@ Before we get to do any of the cool optimizations; we must make the engine work 
 
 ![Caption: jwLLM runs GPT2 at .2 tok/sec on a macbook m4 pro!](/content/jwllm-part1/DEMO.mov?wide-player)
 
+Let’s look at the overall architecture we need to implement to guide us:
+
+\<imag eplaceholder\>
+
+As you can see, it’s a long process, so onwards\! Let’s start with the tokenizer.
+
 ## Tokenizer
 
 Let’s trace the data throughout generation, starting with the user request as a string. Since the model can only operate on numbers, we must convert the user query into a list of numbers. It seems trivial but actually was super painful to build. The code for the tokenizer is below, but I want to highlight the codepoint/utf-8/unicode translation and the merge priority system.
@@ -486,9 +492,77 @@ Our tokenizer gave us a vector of numbers representing the IDs of each token. Ne
 
 The embeddings tell the model the meaning of each token, but it tells the model nothing about the position of each token. For example, if the word yellow appears at the start and at the end of the sentence, this looks identical to the model. So next we apply an addition of a positional vector, unique per position but the same for all tokens, that internally uses sine and cosine to be rotatory in nature to represent the location of each word.
 
-Now we have a parenthesis sequence xd model close parenthesis representation that contains information about the tokens, the meaning, and the location of each token. 
+Now we have a \[sequence x d\_model\] representation that contains information about the tokens, the meaning, and the location of each token.
 
-###
+### The attention block
+
+Next, this \[sequence x d\_model\] representing the token goes through 12 back to back attention blocks. Let’s look at what this is:
+
+\<image placeholder\>
+
+You’ll see the at each stage the dimensions remain the same (even though they may be internally transformed) from \[seq, model\]. You’ll also see this residual that keeps the original value summated throughout like a loop. Let’s dive into each piece we composed in this picture next.
+
+### Layer Norm
+
+LayerNorm’s goal is to make all the data per row be standardized. It does this by normalizing each row to mean \= 0, variance \= 1, then scaling by gamma and shifting by beta. Eps is added to the denominator when making the variance zero to prevent dividing by zero. What helped me understand this part was remembering the Z-Score formula from high school stats.
+
+```cpp
+// normalize each row to mean 0 / variance 1, then scale by gamma and shift by beta  
+Matrix Matrix::layernorm(const Matrix &gamma, const Matrix &beta, float eps) const  
+{
+
+   vector\<float\> out(this\-\>data.size());
+
+   for (int i \= 0; i \< this\-\>rows; i\++)  
+   {
+
+       // for each row  
+       float mean \= 0;  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           mean \+= this\-\>data\[i \* this\-\>cols \+ g\];  
+       }  
+       mean /= this\-\>cols;
+
+       float var \= 0;  
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           float diff \= this\-\>data\[i \* this\-\>cols \+ g\] \- mean;  
+           var \+= diff \* diff;  
+       }  
+       var /= this\-\>cols;  
+       // vaiance is difference^2) averaged out  
+       // variance is sigma (standard deviation squared)
+
+       // z sciore \- (x-u)/sigma  
+       // we basically calcualting this
+
+       // eps to pevent divide by zero
+
+       for (int g \= 0; g \< this\-\>cols; g\++)  
+       {  
+           out\[i \* this\-\>cols \+ g\] \= (this\-\>data\[i \* this\-\>cols \+ g\] \- mean) / std::sqrt(var \+ eps);  
+       }  
+   }
+
+   // beta and gamma are learned so model decides what to expand. gamma is sscaler, beta is additive. //eps is to prevent divide by zero  
+   Matrix out\_m \= Matrix(this\-\>rows, this\-\>cols, out);  
+   return (out\_m.broadcast\_multiply\_row(gamma)).broadcast\_add\_row(beta);  
+}
+
+```
+
+We run this layernorm constantly throughout the model, notably before each attention block.
+
+### Attention
+
+### MLP
+
+### Convert to logits, sample, and decode
+
+# Fin
+
+Obviously a lot of optimizations can be built next, which is exactly what we will be doing next\! Stay peeled to watch for the next blog in this series.
 */ }),
   },
   {
