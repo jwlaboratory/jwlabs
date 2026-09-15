@@ -76,7 +76,7 @@ This keeps the big model away from spending tokens and time on checking things l
 
 I trained a tiny CNN in NumPy with only 9,000 parameters and about 40 KB of weights. It trained in under a minute on my MacBook and classifies a frame as **loaded** or **pending** in a few milliseconds, so it could potentially run hundreds of checks per second and deliver subsecond interrupts.
 
-This proof of concept was trained on only five demo HTML pages, so it does not generalize beyond them. Still, I believe it shows the potential for a model with fewer than one million parameters—small enough to run in milliseconds—to detect when pages, apps, videos, and other interfaces have loaded with high accuracy across many domains.
+Obviously, this was not trained on internet scale data, so does not generalize at all outside of the 5 demo HTML webpages that I trained this on. However, I believe this shows that easily a <1 million parameter model that can run in milliseconds can detect if a page has loaded with a high accuracy across many domains (apps, webpages, videos, etc).
 
 GitHub: [jwlaboratory/brr-cua](https://github.com/jwlaboratory/brr-cua)
 
