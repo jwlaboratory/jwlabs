@@ -498,7 +498,7 @@ Now we have a \[sequence x d\_model\] representation that contains information a
 
 Next, this \[sequence x d\_model\] representing the token goes through 12 back to back attention blocks. Let’s look at what this is:
 
-\<image placeholder\>
+![jwLLM transformer block architecture with layer normalization, attention, MLP, and residual connections](/content/jwllm-part1/image2.png)
 
 You’ll see the at each stage the dimensions remain the same (even though they may be internally transformed) from \[seq, model\]. You’ll also see this residual that keeps the original value summated throughout like a loop. Let’s dive into each piece we composed in this picture next.
 
