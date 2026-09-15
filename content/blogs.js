@@ -46,7 +46,7 @@ Before we get to do any of the cool optimizations; we must make the engine work 
 
 Let’s look at the overall architecture we need to implement to guide us:
 
-![jwLLM inference pipeline from request through tokenization, embeddings, attention blocks, logits, sampling, and decoding](/content/jwllm-part1/image1.png)
+![](/content/jwllm-part1/image1.png)
 
 As you can see, it’s a long process, so onwards\! Let’s start with the tokenizer.
 
@@ -498,7 +498,7 @@ Now we have a [sequence x d_model] representation that contains information abou
 
 Next, this [sequence x d_model] representing the token goes through 12 back to back attention blocks. Let’s look at what this is:
 
-![jwLLM transformer block architecture with layer normalization, attention, MLP, and residual connections](/content/jwllm-part1/image2.png)
+![](/content/jwllm-part1/image2.png)
 
 You’ll see the at each stage the dimensions remain the same (even though they may be internally transformed) from [seq, model]. You’ll also see this residual that keeps the original value summated throughout like a loop. Let’s dive into each piece we composed in this picture next.
 
