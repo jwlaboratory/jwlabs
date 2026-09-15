@@ -8,14 +8,14 @@ const markdown = (template) =>
 window.BLOG_POSTS = [
   {
     slug: "jwllm-part1",
-    title: "jwLLM part 1",
+    title: "Making An Inference engine entirely in cpp (jwLLM part 1)",
     date: "2026-09-15",
     category: "Engineering",
     authors: "Shrey Birmiwal",
     noAbstract: true,
     summary: "A semester-long build log about creating a GPT-2 inference engine in Cpp while applying ideas from linear algebra, operating systems, and systems programming.",
     markdown: markdown(() => { /*
-# jwLLM part 1
+# Making An Inference engine entirely in cpp (jwLLM part 1)
 
 # Intro and motivation
 
