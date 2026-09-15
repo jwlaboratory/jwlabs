@@ -914,9 +914,10 @@ body[data-page="article"] .site-footer {
 }
 
 .blog-content figure.figure-image-compact {
-  max-width: 420px;
-  margin-left: auto;
+  max-width: 300px;
+  margin-left: 0;
   margin-right: auto;
+  text-align: left;
 }
 
 .blog-content figcaption {
