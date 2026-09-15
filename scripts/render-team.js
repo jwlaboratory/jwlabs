@@ -45,6 +45,10 @@ const createAuthorRow = (author) => {
     links.append(createContactLink("GitHub", `https://github.com/${author.github}`));
   }
 
+  if (author.linkedin) {
+    links.append(createContactLink("LinkedIn", author.linkedin));
+  }
+
   row.append(links);
   return row;
 };
