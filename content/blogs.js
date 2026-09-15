@@ -7,6 +7,486 @@ const markdown = (template) =>
 
 window.BLOG_POSTS = [
   {
+    slug: "making-an-inference-engine-entirely-in-cpp-jwllm",
+    title: "Making an inference engine entirely in Cpp (jwLLM)",
+    date: "2026-09-15",
+    category: "Engineering",
+    authors: "Shrey Birmiwal",
+    noAbstract: true,
+    summary: "A semester-long build log about creating a GPT-2 inference engine in Cpp while applying ideas from linear algebra, operating systems, and systems programming.",
+    markdown: markdown(() => { /*
+# Making an inference engine entirely in Cpp (jwLLM)
+
+# Intro and motivation
+
+This semester I’m taking Linear Algebra, Operating Systems, and Cpp programming at UT Austin. I thought to myself, what better way to reinforce the learnings from the courses than to work on a semester long project that specifically focuses on the stuff I just learned from class?
+
+I landed on building an inference engine in cpp to run GPT-2. Not only is it a super cool and fast growing field that I’m super interested in, It’ll almost perfectly map concepts from class to the project. Some things I’m looking forward to building and learning are:
+
+- Learning how virtual memory works and seeing how we can implement that for KV (vLLM)  
+- Learning about matrix ops in lin alg and seeing how things like tensor parallel or efficient matrix mult can be performed  
+- Learning about mmap and seeing how we can use it to multiprocessor with fork() and to manage shared KV cache  
+- Learning about cache and how we can optimize our code (stride access patterns etc)  
+- Learning about CPU scheduling algos and seeing how we can build a scheduler for forward passes and also at macro, the GPU routing algos  
+- Learning Cpp tricks and tips and implementing them  
+- Learning how data is stored and floating point is represented in memory and seeing how quantization can be built  
+- Learning how efficient I/O is built and seeing how we can build things like FlexGen or SSD weight streaming  
+- Learning concurrent programming and seeing how we can speed up our inference server  
+- Learning networking and seeing how that can be applied to prefill decode disag
+
+One thing I’d like to note: The goal of this project is to learn, not to showcase a project. If I wanted to, most of this could be completed with a LLM very quickly. Instead of focusing on learning, the projects are slow and intentional, so bear with me\!
+
+The code for this project can be found here: [https://github.com/jwlaboratory/jwLLM](https://github.com/jwlaboratory/jwLLM)
+
+# Making it just work
+
+Before we get to do any of the cool optimizations; we must make the engine work (albeit slow\!). Here’s a end demo of what we’ll have running by the end of this blog:
+
+/Users/shreybirmiwal/Downloads/DEMO.mov  
+*Caption: jwLLM runs GPT2 at .2 tok/sec on a macbook m4 pro\!*
+
+## Tokenizer
+
+Let’s trace the data throughout generation, starting with the user request as a string. Since the model can only operate on numbers, we must convert the user query into a list of numbers. It seems trivial but actually was super painful to build. The code for the tokenizer is below, but I want to highlight the codepoint/utf-8/unicode translation and the merge priority system.
+
+\#include "tokenizer.hpp"  
+\#include "matrix.hpp"  
+\#include \<fstream\>  
+\#include \<iostream\>  
+\#include \<nlohmann/json.hpp\>
+
+using json \= nlohmann::json;
+
+using namespace std;
+
+Tokenizer::Tokenizer(string \_mapping\_json\_path, string \_merge\_txt\_path)  
+{  
+   ifstream f(\_mapping\_json\_path);  
+   if (\!f.is\_open())  
+   {  
+       throw runtime\_error("could not open mapping");  
+   };
+
+   json j;  
+   f \>\> j;
+
+   for (auto &\[key, value\] : j.items())  
+   {  
+       int id \= value.get\<int\>();  
+       sToT\[key\] \= id;  
+       tToS\[id\] \= key;  
+   }  
+   f.close();
+
+   // merge list  
+   ifstream merge\_f(\_merge\_txt\_path);  
+   if (\!merge\_f.is\_open())  
+   {  
+       throw runtime\_error("could not open merge path");  
+   }
+
+   string merge\_line;  
+   int cur\_priority \= 0;  
+   while (getline(merge\_f, merge\_line))  
+   {  
+       // Output the text from the file  
+       merge\_priority\[merge\_line\] \= cur\_priority;  
+       cur\_priority \+= 1;  
+   }  
+   merge\_f.close();  
+   regex\_splitter \= std::regex(R"('s|'t|'re|'ve|'m|'ll|'d| ?\[a-zA-Z\]+| ?\[0-9\]+| ?\[^\\s\\w\]+|\\s+(?\!\\S)|\\s+)");
+
+   // unordered\_map\<int, char32\_t\> byte2unicode\_data;  
+   // unordered\_map\<char32\_t, int\> unicode2byte\_data;  
+   byte2unicode();  
+}
+
+std::vector\<int\> Tokenizer::encode(string in)  
+{  
+   std::vector\<int\> final\_tokens;
+
+   // 1 apply the regex  
+   std::vector\<std::string\> split\_input\_string \= regex\_split(in, regex\_splitter);
+
+   for (std::string chunk : split\_input\_string)  
+   {  
+       // run per chunk the tokenization
+
+       std::vector\<int\> tokenized\_chunk \= tokenize\_chunk(chunk);
+
+       for (int tokenized\_chunk\_nums : tokenized\_chunk)  
+       {  
+           final\_tokens.push\_back(tokenized\_chunk\_nums);  
+       }  
+   }  
+   return final\_tokens;  
+}
+
+std::vector\<int\> Tokenizer::tokenize\_chunk(std::string chunk)  
+{  
+   // we should keep a priority queue that keeps the adjacent tokens and the score  
+   // \-\> put closest 2 together, lookup  
+   // \-\> keep scores : arraypos1, arraypos2  
+   // \-\> after loop, merge lowest score, delete extra entry in array or mark it as no longer used (so its skipped)  
+   // complete until no more scores
+
+   // struct MergeCandidate  
+   // {  
+   //     int priority\_score;  
+   //     string str;  
+   // };
+
+   // vector\<struct MergeCandidate\> all\_candidates;
+
+   // for (int i \= 0; i \< chunk.size() \- 1; i++)  
+   // {  
+   //     std::string candidate\_as\_string \= chunk\[i\] \+ " " \+ chunk\[i \+ 1\];
+
+   //     int prio;  
+   //     if (merge\_priority.find(candidate\_as\_string) \== merge\_priority.end())  
+   //     {  
+   //         prio \= \-1;  
+   //     }  
+   //     else  
+   //     {  
+   //         prio \= merge\_priority\[candidate\_as\_string\];  
+   //     }
+
+   //     struct MergeCandidate candidate \= {.priority\_score \= prio, .str \= candidate\_as\_string};  
+   //     all\_candidates.push\_back(candidate);  
+   // }
+
+   // // main loop  
+   // bool finished\_merges \= false;
+
+   // while (\!finished\_merges)  
+   // {  
+   //     int lowest\_prio \= 9999;  
+   //     int lowest\_prio\_index \= \-1;
+
+   //     for (int i \= 0; i \< all\_candidates.size(); i++)  
+   //     {  
+   //         if (all\_candidates\[i\].priority\_score \!= \-1 && all\_candidates\[i\].priority\_score \< lowest\_prio)  
+   //         {  
+   //             lowest\_prio \= all\_candidates\[i\].priority\_score;  
+   //             lowest\_prio\_index \= i;  
+   //         }  
+   //     }
+
+   //     // now we want to check  
+   //     if (lowest\_prio\_index \== \-1)  
+   //     {  
+   //         finished\_merges \= true;  
+   //         break;  
+   //     }  
+   //     else  
+   //     {  
+   //         // here we have at least one merge to make
+
+   //         // case 1: first token  
+   //         if (lowest\_prio\_index \== 0\)  
+   //         {  
+   //             // delete this, update index lowest\_prio\_index+1  
+   //             all\_candidates\[lowest\_prio\_index \+ 1\].left\_token\_left\_index \= all\_candidates\[lowest\_prio\_index\].left\_token\_left\_index;  
+   //             // reindex
+
+   //             all\_candidates\[lowest\_prio\_index \+ 1\].priority\_score \= new\_prio;
+
+   //             all\_candidates.erase(all\_candidates.begin() \+ lowest\_prio\_index);  
+   //         }  
+   //         else if (lowest\_prio\_index \== all\_candidates.size() \- 1\)  
+   //         {  
+   //             // last index case  
+   //             all\_candidates\[lowest\_prio\_index \- 1\].right\_index\_right\_index \= all\_candidates\[lowest\_prio\_index\].right\_index\_right\_index;  
+   //             all\_candidates.erase(all\_candidates.begin() \+ lowest\_prio\_index);  
+   //         }  
+   //         else  
+   //         {  
+   //             // normal case  
+   //         }
+
+   //         // \#, \#, \#, \#  
+   //         // a, b, c, d  
+   //         // a-b, b-c, c-d  
+   //         // bc is lowest. then itll be a-bc, bc-d  
+   //         // if cd is lowest. then itll be a-b, b-cd  
+   //         // if ab is lowest. then itll be ab-c, c-d  
+   //     }  
+   // }
+
+   // lookup each token
+
+   // return final answ;
+
+   std::vector\<std::string\> symbols;  
+   for (size\_t i \= 0; i \< chunk.size(); i\++)  
+   {
+
+       unsigned char b \= (unsigned char)chunk\[i\];  
+       // unsighend so bytes \> 127 dont break  
+       char32\_t cp \= byte2unicode\_data\[b\];  
+       // here we get the value correctly, if it was unsafe number, it gets re routed to a safe number  
+       // we now gotta make it back into a utf8  
+       symbols.push\_back(codepoint\_to\_utf8(cp));  
+   }
+
+   while (symbols.size() \> 1)  
+   {  
+       // find lowest score index  
+       int lowest\_index \= \-1;  
+       int lowest\_pri \= 9999999;
+
+       for (size\_t i \= 0; i \< symbols.size() \- 1; i\++)  
+       {  
+           string candidate \= symbols\[i\] \+ " " \+ symbols\[i \+ 1\];
+
+           int prio;  
+           if (merge\_priority.find(candidate) \!= merge\_priority.end())  
+           {  
+               prio \= merge\_priority\[candidate\];  
+               if (prio \< lowest\_pri)  
+               {  
+                   lowest\_pri \= prio;  
+                   lowest\_index \= i;  
+               }  
+           }  
+       }
+
+       // if we found smth to merge, lets merge it  
+       if (lowest\_index \!= \-1)  
+       {  
+           symbols\[lowest\_index\] \= symbols\[lowest\_index\] \+ symbols\[lowest\_index \+ 1\];  
+           symbols.erase(symbols.begin() \+ lowest\_index \+ 1);  
+       }  
+       else  
+       {  
+           // we need to break, no more merges  
+           break;  
+       }  
+   }
+
+   // now we need to get the actual mapped indexes and return them  
+   std::vector\<int\> output;
+
+   for (string symb : symbols)  
+   {  
+       output.push\_back(sToT\[symb\]);  
+   }
+
+   return output;  
+}
+
+string Tokenizer::decode(std::vector\<int\> in)  
+{  
+   std::string disguised;
+
+   for (auto &v : in)  
+       disguised \+= tToS.at(v);
+
+   std::string raw;  
+   size\_t i \= 0;  
+   while (i \< disguised.size())  
+   {  
+       unsigned char b \= disguised\[i\];  
+       char32\_t cp;  
+       size\_t len;
+
+       if ((b & 0x80) \== 0x00) // 0xxxxxxx → 1 byte  
+       {  
+           cp \= b;  
+           len \= 1;  
+       }  
+       else // 110xxxxx 10xxxxxx → 2 bytes  
+       {  
+           cp \= ((b & 0x1F) \<\< 6) | (disguised\[i \+ 1\] & 0x3F);  
+           len \= 2;  
+       }
+
+       raw \+= (char)unicode2byte\_data\[cp\];  
+       i \+= len;  
+   }  
+   return raw;  
+}
+
+// from the internet: function to split into array based on regex  
+std::vector\<std::string\> Tokenizer::regex\_split(const std::string &input, const std::regex &re)  
+{  
+   // Pass 0 instead of \-1 to capture the actual regex matches (tokens)  
+   std::sregex\_token\_iterator first{input.begin(), input.end(), re, 0};  
+   std::sregex\_token\_iterator last;
+
+   std::vector\<std::string\> tokens;  
+   for (auto it \= first; it \!= last; \++it)  
+   {  
+       if (\!it\-\>str().empty())  
+       {  
+           tokens.push\_back(\*it);  
+       }  
+   }  
+   return tokens;  
+}
+
+void Tokenizer::byte2unicode()  
+{
+
+   // these are NORMAL ranges, ie normal characters, and should maintain the same value  
+   for (int i \= 33; i \<= 126; \++i)  
+   {  
+       byte2unicode\_data\[i\] \= i;  
+       unicode2byte\_data\[i\] \= i;  
+   }  
+   for (int i \= 161; i \<= 172; \++i)  
+   {  
+       byte2unicode\_data\[i\] \= i;  
+       unicode2byte\_data\[i\] \= i;  
+   }  
+   for (int i \= 174; i \<= 255; \++i)  
+   {  
+       byte2unicode\_data\[i\] \= i;  
+       unicode2byte\_data\[i\] \= i;  
+   }
+
+   // abnormal ranges  
+   int n \= 0;  
+   for (int i \= 0; i \< 256; i\++)  
+   {  
+       if (byte2unicode\_data.find(i) \== byte2unicode\_data.end())  
+       {  
+           // we have a special case\!  
+           byte2unicode\_data\[i\] \= n \+ 256; // we do this to avoid ascii and move it into a safe range  
+           unicode2byte\_data\[n \+ 256\] \= i;  
+           n\++;  
+       }  
+   }  
+}
+
+// \_chr \= unichr if sys.version\_info\[0\] \== 2 else chr  
+// bs \= list(range(ord("\!"), ord("\~")+1))+list(range(ord("¡"), ord("¬")+1))+list(range(ord("®"), ord("ÿ")+1))  
+// cs \= bs\[:\]  
+// n \= 0  
+// for b in range(2\*\*8):  
+//     if b not in bs:  
+//         bs.append(b)  
+//         cs.append(2\*\*8+n)  
+//         n \+= 1  
+// cs \= \[\_chr(n) for n in cs\]  
+// return dict(zip(bs, cs))
+
+// func copied from gpt.  
+// itll basically do this. if its a 1 byte, itll keep it. if its a 2byte according to the utf8 pattern (\>)  
+// if its 2 byte, itll do the pattern utf8 wants for 2 byte. ie wraps with 11000000 and 10000000  
+std::string Tokenizer::codepoint\_to\_utf8(char32\_t cp)  
+{  
+   std::string out;  
+   if (cp \< 0x80)  
+   {  
+       out \+= (char)cp;  
+   }  
+   else  
+   {  
+       out \+= (char)(0xC0 | (cp \>\> 6));  
+       out \+= (char)(0x80 | (cp & 0x3F));  
+   }  
+   return out;  
+}
+
+**Codepoint Fiasco**  
+Users can type many types of characters, including potentially blank or special characters such as new lines. This can be annoying for debugging with non-visible characters or accidentally outputting these types of characters, so the tokenizer does a unique mapping such that:
+
+1. All input items (emojis, etc) that may take multiple bytes are interpreted on byte at a time  
+2. If they (when interpreted as one byte) are “nasty” (new line, white space, etc), they are added 256 to shift into a 2 byte known safe range. For example “ “ becomes “Ġ”.
+
+The result is rather strange. Variable length encoded objects are reinterpreted as one byte, shifted, then reinterpreted. But it works to make all of the characters deterministically mapped to 256 options that are safe.   
+**Merges**  
+Each character, though has a token id mapping, is not well interpreted by the model. That's like a human trying to read characters by characters instead of words by words. So the tokenizer then merges the pairs of the most frequent subtokens repeatedly. Here’s an example:
+
+| S | U | B | M | A | R | I | N | E |
+| :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- |
+| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+
+You can see SUBMARINE with each character mapping to a token ID. Let’s perform the merges (which merge in the *order of priority given)*.
+
+Merge priorities (given, trained by frequencies in training set)
+
+| Tok 1 | Tok 2 | Merge Priority |
+| :---- | :---- | :---- |
+| S | U | 1 |
+| SU | B | 2 |
+| U | B | 3 |
+| M | A | 4 |
+| R | I | 5 |
+| I | N | 6 |
+| RI | N | 7 |
+| RIN | E | 8 |
+| MA | RINE | 9 |
+
+The tokenizer will repeatedly merge the top priority that exists in the given list of tokens.  
+In this case, it’ll merge S-U, then SU-B, then M-A, then R-I, then RI-N, then RIN-E, then MA-RINE. Notice it skips U-B and I-N and never merges SUB-MARINE.
+
+This is cool because it learns the most frequent merges and therefore can split where semantic meaning is most helpful. In this case, the submarine split clearly into sub (which means under) and marine (which means water). It allows the model to still understand, even if it's never seen a submarine, that the word represents under-water.
+
+## Embedding
+
+\#include "matrix.hpp"  
+\#include "embedding.hpp"  
+using namespace std;
+
+Embedding::Embedding(SafeTensors &weights)  
+{  
+   WORD\_TOKEN\_EMBEDDING \= weights.get("wte.weight");  
+   WORD\_POSITIONAL\_EMBEDDING \= weights.get("wpe.weight");  
+}
+
+Matrix Embedding::tokenized\_to\_embed(const std::vector\<int\> &token\_ids)  
+{  
+   // token\_ids is a single sequence of vocab ids  
+   int d\_model \= WORD\_TOKEN\_EMBEDDING.cols;  
+   int seq\_len \= token\_ids.size();  
+   std::vector\<float\> out(seq\_len \* d\_model);
+
+   for (int i \= 0; i \< seq\_len; i\++)  
+   {  
+       int token\_id \= token\_ids\[i\];
+
+       for (int g \= 0; g \< d\_model; g\++)  
+       {  
+           out\[i \* d\_model \+ g\] \= WORD\_TOKEN\_EMBEDDING.data\[token\_id \* d\_model \+ g\];  
+           // out is flat array, word\_token embedding is also flat array  
+       }  
+   }
+
+   return Matrix(seq\_len, d\_model, out);  
+}
+
+void Embedding::apply\_positional\_encoding(Matrix &token\_embeddings)  
+{  
+   // seq len rows  
+   // dmodel cols
+
+   // WORD\_POSITIONAL\_EMBEDDING is a table of size: position rows, dmodel cols
+
+   int seq\_len \= token\_embeddings.rows;  
+   int dmodel \= token\_embeddings.cols;
+
+   for (int i \= 0; i \< seq\_len; i\++)  
+   {  
+       for (int g \= 0; g \< token\_embeddings.cols; g\++)  
+       {  
+           token\_embeddings.data\[i \* dmodel \+ g\] \+= WORD\_POSITIONAL\_EMBEDDING.data\[i \* dmodel \+ g\];  
+       }  
+   }  
+}
+
+Our tokenizer gave us a vector of numbers representing the IDs of each token. Next we need to convert into embeddings such that something that will give us rich features of each token. The dimensions of this is called dmodel. We do this by looking up in a table for our token ID. 
+
+The embeddings tell the model the meaning of each token, but it tells the model nothing about the position of each token. For example, if the word yellow appears at the start and at the end of the sentence, this looks identical to the model. So next we apply an addition of a positional vector, unique per position but the same for all tokens, that internally uses sine and cosine to be rotatory in nature to represent the location of each word.
+
+Now we have a parenthesis sequence xd model close parenthesis representation that contains information about the tokens, the meaning, and the location of each token. 
+
+###
+*/ }),
+  },
+  {
     slug: "computer-use-interrupts",
     title: "Making computer-use models faster with interrupts instead of polling",
     date: "2026-09-14",
