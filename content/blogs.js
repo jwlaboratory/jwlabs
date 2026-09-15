@@ -392,14 +392,14 @@ std::string Tokenizer::codepoint\_to\_utf8(char32\_t cp)
 
 ```
 
-**Codepoint Fiasco**  
+### Codepoint Fiasco
 Users can type many types of characters, including potentially blank or special characters such as new lines. This can be annoying for debugging with non-visible characters or accidentally outputting these types of characters, so the tokenizer does a unique mapping such that:
 
 1. All input items (emojis, etc) that may take multiple bytes are interpreted on byte at a time  
 2. If they (when interpreted as one byte) are “nasty” (new line, white space, etc), they are added 256 to shift into a 2 byte known safe range. For example “ “ becomes “Ġ”.
 
 The result is rather strange. Variable length encoded objects are reinterpreted as one byte, shifted, then reinterpreted. But it works to make all of the characters deterministically mapped to 256 options that are safe.   
-**Merges**  
+### Merges
 Each character, though has a token id mapping, is not well interpreted by the model. That's like a human trying to read characters by characters instead of words by words. So the tokenizer then merges the pairs of the most frequent subtokens repeatedly. Here’s an example:
 
 | S | U | B | M | A | R | I | N | E |
