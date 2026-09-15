@@ -1201,6 +1201,7 @@ This was a really really fun experiment. I hope you had as much fun reading it a
     category: "Side Quests",
     authors: "Shrey Birmiwal and Avi Agrawal",
     noAbstract: true,
+    shareImage: "/content/poolpro/building-projections.jpg",
     markdown: markdown(() => { /*
 # Using CV and a projector to help me play billiards
 By Shrey Birmiwal and Avi Agrawal
@@ -1208,8 +1209,6 @@ By Shrey Birmiwal and Avi Agrawal
 Me and my roommates at UT Austin lucked out and got assigned an apartment with a pool table instead of a dining table. Sounds great but I SUCK at the game while my roommates somehow get super lucky and always beat me.
 
 I recently saw someone on YouTube build a system using a camera and a projector to make a real life pool more like a game pigeon, so we decided to build something similar. Also, I wanted to test how autonomous a model like GPT Sol could be given a camera and projector to work in a loop /goal and build the entire project.
-
-![Shrey and Avi after taping Shrey’s phone to the roof](/content/poolpro/building-cam.jpg)
 
 First we taped Shrey’s phone to the roof directly above the pool table. The idea was to use the iPhone continuous camera feature to stream to the MacBook. For some reason, GPT struggled a lot when trying to get the stream to work, but I digress. We got this running a model to detect the pool balls and the stick.
 
