@@ -68,11 +68,11 @@ Because this model’s job is not to think, understand english and other languag
 
 When this tiny model polls and determines the page has reached the next state, it can ping the large, main model (similar to an interrupt).
 
-![A handwritten sketch of the main model polling while a page loads, then continuing after the state changes](/content/computer-use-interrupts/interrupt-flow.png)
+![The main model calls the tiny model to poll for it rapidly and interrupt when loaded](/content/computer-use-interrupts/interrupt-flow.png)
 
 This keeps the big model away from spending tokens and time on checking things like if the page has loaded.
 
-## Training a tiny "BRR" model and MCP for Claude-in-CHrome
+## Training a tiny "BRR" model and MCP for Claude-in-Chrome
 
 I trained a tiny CNN in NumPy with only 9,000 parameters and about 40 KB of weights. It trained in under a minute on my MacBook and classifies a frame as **loaded** or **pending** in a few milliseconds, so it could potentially run hundreds of checks per second and deliver subsecond interrupts.
 
