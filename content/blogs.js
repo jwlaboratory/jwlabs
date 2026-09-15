@@ -78,6 +78,10 @@ I trained a tiny CNN in NumPy with only 9,000 parameters and about 40 KB of weig
 
 Obviously, this was not trained on internet scale data, so does not generalize at all outside of the 5 demo HTML webpages that I trained this on. However, I believe this shows that easily a <1 million parameter model that can run in milliseconds can detect if a page has loaded with a high accuracy across many domains (apps, webpages, videos, etc).
 
+I also quickly vibe coded a quick MCP that would expose this as a tool to Claude in chrome. Here's a demo of the project in action. As you can see, the main model does not process screenshots to poll and is much faster, and cheaper. Almost as soon as the web page loaded, the tiny model returns, and claude begins it's next action almost instant
+
+![Demo of the tiny model interrupting Claude when the web page loads](/content/computer-use-interrupts/brr-cua-demo.mov?no-caption)
+
 GitHub: [jwlaboratory/brr-cua](https://github.com/jwlaboratory/brr-cua)
 
 Thanks for reading! This is just a proof of an idea, but I think it is viable. As computer use becomes a bigger part of the knowledge work that LLMs can help with, it would be very cool to see companies like Perplexity or Codex use something similar in their computer-use systems.
