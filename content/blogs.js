@@ -46,7 +46,7 @@ Before we get to do any of the cool optimizations; we must make the engine work 
 
 Let’s look at the overall architecture we need to implement to guide us:
 
-\<imag eplaceholder\>
+![jwLLM inference pipeline from request through tokenization, embeddings, attention blocks, logits, sampling, and decoding](/content/jwllm-part1/image1.png)
 
 As you can see, it’s a long process, so onwards\! Let’s start with the tokenizer.
 
