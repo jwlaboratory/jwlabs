@@ -7,7 +7,7 @@ const markdown = (template) =>
 
 window.BLOG_POSTS = [
   {
-    slug: "making-an-inference-engine-entirely-in-cpp-jwllm",
+    slug: "jwllm-part1",
     title: "Making an inference engine entirely in Cpp (jwLLM)",
     date: "2026-09-15",
     category: "Engineering",
@@ -42,7 +42,7 @@ The code for this project can be found here: [https://github.com/jwlaboratory/jw
 
 Before we get to do any of the cool optimizations; we must make the engine work (albeit slow\!). Here’s a end demo of what we’ll have running by the end of this blog:
 
-![Caption: jwLLM runs GPT2 at .2 tok/sec on a macbook m4 pro!](/content/making-an-inference-engine-entirely-in-cpp-jwllm/DEMO.mov?wide-player)
+![Caption: jwLLM runs GPT2 at .2 tok/sec on a macbook m4 pro!](/content/jwllm-part1/DEMO.mov?wide-player)
 
 ## Tokenizer
 
