@@ -49,6 +49,7 @@ Before we get to do any of the cool optimizations; we must make the engine work 
 
 Let’s trace the data throughout generation, starting with the user request as a string. Since the model can only operate on numbers, we must convert the user query into a list of numbers. It seems trivial but actually was super painful to build. The code for the tokenizer is below, but I want to highlight the codepoint/utf-8/unicode translation and the merge priority system.
 
+```cpp
 \#include "tokenizer.hpp"  
 \#include "matrix.hpp"  
 \#include \<fstream\>  
@@ -390,6 +391,8 @@ std::string Tokenizer::codepoint\_to\_utf8(char32\_t cp)
    return out;  
 }
 
+```
+
 **Codepoint Fiasco**  
 Users can type many types of characters, including potentially blank or special characters such as new lines. This can be annoying for debugging with non-visible characters or accidentally outputting these types of characters, so the tokenizer does a unique mapping such that:
 
@@ -427,6 +430,7 @@ This is cool because it learns the most frequent merges and therefore can split 
 
 ## Embedding
 
+```cpp
 \#include "matrix.hpp"  
 \#include "embedding.hpp"  
 using namespace std;
@@ -476,6 +480,8 @@ void Embedding::apply\_positional\_encoding(Matrix &token\_embeddings)
        }  
    }  
 }
+
+```
 
 Our tokenizer gave us a vector of numbers representing the IDs of each token. Next we need to convert into embeddings such that something that will give us rich features of each token. The dimensions of this is called dmodel. We do this by looking up in a table for our token ID. 
 

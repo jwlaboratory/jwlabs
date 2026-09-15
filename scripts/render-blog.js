@@ -432,7 +432,7 @@ const createCodeBlock = (lines, language = "") => {
     code.className = `language-${language}`;
   }
 
-  code.textContent = lines.join("\n");
+  code.textContent = lines.map(unescapeMarkdownSyntax).join("\n");
   pre.append(code);
 
   if (lines.length <= CODE_BLOCK_COLLAPSED_LINES) {
