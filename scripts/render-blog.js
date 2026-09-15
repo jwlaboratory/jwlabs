@@ -660,10 +660,12 @@ const isVideoSource = (src = "") => /\.(mp4|webm|mov)(?:[?#].*)?$/i.test(src);
 
 const createImage = (alt, src, fallbackSrc = "") => {
   const figure = document.createElement("figure");
+  const hideCaption = /[?&]no-caption\b/.test(src);
 
   if (isVideoSource(src)) {
-    const isPlayer = /[?&]player\b/.test(src);
-    const videoSrc = src.replace(/[?&]player\b/, "");
+    const isWidePlayer = /[?&]wide-player\b/.test(src);
+    const isPlayer = isWidePlayer || /[?&]player\b/.test(src);
+    const videoSrc = src.replace(/[?&](?:wide-player|player)\b/, "");
     const video = document.createElement("video");
 
     video.playsInline = true;
@@ -673,7 +675,9 @@ const createImage = (alt, src, fallbackSrc = "") => {
     video.setAttribute("aria-label", alt);
 
     if (isPlayer) {
-      figure.classList.add("figure-compact");
+      if (!isWidePlayer) {
+        figure.classList.add("figure-compact");
+      }
       video.controls = true;
       video.setAttribute("controls", "");
     } else {
@@ -698,7 +702,7 @@ const createImage = (alt, src, fallbackSrc = "") => {
 
     figure.append(video);
 
-    if (alt) {
+    if (alt && !hideCaption) {
       const caption = document.createElement("figcaption");
       caption.textContent = alt;
       figure.append(caption);
@@ -725,7 +729,7 @@ const createImage = (alt, src, fallbackSrc = "") => {
 
   figure.append(image);
 
-  if (alt) {
+  if (alt && !hideCaption) {
     const caption = document.createElement("figcaption");
     caption.textContent = alt;
     figure.append(caption);

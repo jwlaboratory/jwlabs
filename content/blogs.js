@@ -7,6 +7,83 @@ const markdown = (template) =>
 
 window.BLOG_POSTS = [
   {
+    slug: "computer-use-interrupts",
+    title: "Making computer-use models faster with interrupts instead of polling",
+    date: "2026-09-14",
+    category: "Engineering",
+    authors: "Shrey Birmiwal",
+    summary: "A proof of concept for replacing expensive computer-use polling loops with a tiny local watcher model that detects when an application is ready and interrupts the main model.",
+    markdown: markdown(() => { /*
+# Making computer-use models faster with interrupts instead of polling
+
+**TL;DR:** I trained a tiny model that runs very fast loops on your device to “interrupt” the main computer-use model when a page or application it is waiting for has loaded.
+
+## The polling problem
+
+Computer use is a newer way of using large language models. Instead of using a chatbot window to interact with LLMs, computer use gives your model control of your mouse and keyboard to complete tasks for you. It typically works like this:
+
+![A computer-use model repeatedly observes the screen, reasons, plans an action, and operates the mouse or keyboard](/content/computer-use-interrupts/agent-loop.svg?no-caption)
+
+Sometimes you may encounter a page or application that requires waiting, for example, waiting for a video to buffer or a webpage to load. If the website is programmed nicely (and likely simply!), you can repeatedly read its HTML until the button or part of the page that you need has loaded.
+
+If the site is programmed as an application or inside a canvas as dynamic content, the problem gets more involved. You have to take a screenshot, process it, check whether the part of the page you need has loaded, and, if it has not, decide when to check again.
+
+Here’s an example of what I mean. This recording uses Claude, but the issue applies to Perplexity, Codex, and other computer-use systems (and it is a real annoyance I have noticed).
+
+![Claude repeatedly polling and sleeping to check whether a page has loaded](/content/computer-use-interrupts/polling-demo.mp4?wide-player)
+
+1. Claude takes a screenshot, processes it, and realizes the page has not loaded yet.
+2. Claude decides to sleep for five seconds and check again.
+3. Claude takes **another screenshot** and realizes the page still has not loaded.
+4. Claude decides to sleep for **another ten seconds** and check again.
+5. The loop continues until the page is ready.
+
+Eventually, the page loads and Claude gets the data it needs. However, this wastes resources in several ways.
+
+First, polling wastes time because the page can load between checks. If Claude polls every ten seconds and the page loads at the 13-second mark, it waits another seven seconds before noticing.
+
+![A page loading between polling checks leaves delay](/content/computer-use-interrupts/polling-delay.svg)
+
+Second, it muddies the context and plan. Repeatedly thinking about “is the page loaded yet?” can make the model lose track of why it needed to read the page in the first place.
+
+Third, it wastes tokens. In the example above, Claude took three screenshots. At Standard HD, that is approximately 1,600 tokens, or about $0.014 in total.
+
+## Using Interrupts instead of polling
+
+This problem reminded me of a concept from operating systems that we learned in UT Austin’s CS 439 course: interrupts and polling. When the CPU is waiting for a task to complete, ie, reading from I/O: it can either poll or wait for an interrupt.
+
+| Polling | Interrupt |
+| :---- | :---- |
+| The CPU constantly asks, in a loop, “is the job done?” | The CPU sits idle (or does another task) until an electrical signal wakes it when the task completes. |
+| A short loop delay notices completion faster; a long delay adds latency. | Knows quickly. |
+| A short delay uses more resources; a long delay uses fewer. Either way, the CPU stays busy polling. | Does not keep the CPU busy. |
+
+In this case, we can see the analogy between Claude “polling” to see if the page has loaded and the CPU polling for task completion.
+
+It’s not possible to send an electric signal to wake up Claude when the webpage has loaded because we are dealing with many types of applications and pages that may not play nice with us asking them to wake us up.
+
+However, we can still apply this idea of an interrupt. By using a tiny model (much faster, much cheaper, that can run very very fast loops for free on device) to constantly monitor the webpage.
+
+Because this model’s job is not to think, understand english and other languages, reason about keyboards and mouse, or know how a variety of webpages look; but solely to check or at least make a good guess if the application has reached the next state, it can be much smaller in parameter count.
+
+When this tiny model polls and determines the page has reached the next state, it can ping the large, main model (similar to an interrupt).
+
+![The main computer-use model hands waiting off to a tiny local watcher, which interrupts it when the page is ready](/content/computer-use-interrupts/interrupt-flow.svg)
+
+This keeps the big model away from spending tokens and time on checking things like if the page has loaded.
+
+## A 9,000-parameter proof of concept
+
+I trained a tiny CNN in NumPy with only 9,000 parameters and about 40 KB of weights. It trained in under a minute on my MacBook and classifies a frame as **loaded** or **pending** in a few milliseconds, so it could potentially run hundreds of checks per second and deliver subsecond interrupts.
+
+This proof of concept was trained on only five demo HTML pages, so it does not generalize beyond them. Still, I believe it shows the potential for a model with fewer than one million parameters—small enough to run in milliseconds—to detect when pages, apps, videos, and other interfaces have loaded with high accuracy across many domains.
+
+GitHub: [jwlaboratory/brr-cua](https://github.com/jwlaboratory/brr-cua)
+
+Thanks for reading! This is just a proof of an idea, but I think it is viable. As computer use becomes a bigger part of the knowledge work that LLMs can help with, it would be very cool to see companies like Perplexity or Codex use something similar in their computer-use systems.
+*/ }),
+  },
+  {
     slug: "will-ai-be-the-dj",
     title: "DJing a club with an AI agent",
     date: "2026-09-11",
