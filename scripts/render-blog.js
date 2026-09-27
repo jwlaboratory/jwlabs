@@ -229,57 +229,6 @@ const createAskAiBar = (post) => {
 const getShareUrl = (post) =>
   `${window.location.origin}/post/${encodeURIComponent(getPostId(post))}`;
 
-const getNextPost = (post) => {
-  if (post.series && Number.isFinite(post.seriesPart)) {
-    const nextSeriesPost = posts.find(
-      (candidate) =>
-        candidate.series === post.series &&
-        candidate.seriesPart === post.seriesPart + 1,
-    );
-
-    if (nextSeriesPost) {
-      return nextSeriesPost;
-    }
-  }
-
-  const orderedPosts = [...posts]
-    .filter((candidate) => !candidate.hidden)
-    .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`));
-  const currentIndex = orderedPosts.findIndex(
-    (candidate) => getPostId(candidate) === getPostId(post),
-  );
-
-  return currentIndex >= 0 ? orderedPosts[currentIndex + 1] ?? null : null;
-};
-
-const createNextPostNav = (post) => {
-  const nextPost = getNextPost(post);
-
-  if (!nextPost) {
-    return null;
-  }
-
-  const nav = document.createElement("nav");
-  nav.className = "post-next";
-  nav.setAttribute("aria-label", "Next post");
-
-  const link = document.createElement("a");
-  link.className = "post-next-link";
-  link.href = `/post/${encodeURIComponent(getPostId(nextPost))}`;
-
-  const label = document.createElement("span");
-  label.className = "post-next-label";
-  label.textContent = "NEXT";
-
-  const title = document.createElement("span");
-  title.className = "post-next-title";
-  title.textContent = nextPost.title;
-
-  link.append(label, title);
-  nav.append(link);
-  return nav;
-};
-
 const SHARE_ICON_SVG =
   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" ' +
   'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
@@ -1613,12 +1562,6 @@ const renderArticlePage = () => {
   postNode
     .querySelector(".blog-body")
     .append(renderMarkdown(bodyMarkdown, post, headingIds));
-
-  const nextPostNav = createNextPostNav(post);
-
-  if (nextPostNav) {
-    postNode.append(nextPostNav);
-  }
 
   // The page may arrive prerendered (see build.js); replace that markup so the
   // article always carries live event listeners.

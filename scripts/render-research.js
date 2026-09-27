@@ -19,7 +19,7 @@ const formatShortDate = (dateValue) => {
   }).format(date);
 };
 
-const createListItem = ({ title, date, href, series, seriesPart }) => {
+const createListItem = ({ title, date, href, className = "" }) => {
   const dateEl = document.createElement("span");
   dateEl.className = "list-item-date";
   dateEl.textContent = formatShortDate(date);
@@ -28,30 +28,44 @@ const createListItem = ({ title, date, href, series, seriesPart }) => {
   titleEl.className = "list-item-title";
   titleEl.textContent = title;
 
-  const titleWrap = document.createElement("span");
-  titleWrap.className = "list-item-title-wrap";
-
-  if (series) {
-    const seriesEl = document.createElement("span");
-    seriesEl.className = "list-item-series";
-    seriesEl.textContent = seriesPart ? `${series} · Part ${seriesPart}` : series;
-    titleWrap.append(seriesEl);
-  }
-
-  titleWrap.append(titleEl);
-
   if (href) {
     const link = document.createElement("a");
-    link.className = "list-item list-item-link";
+    link.className = `list-item list-item-link ${className}`.trim();
     link.href = href;
-    link.append(titleWrap, dateEl);
+    link.append(titleEl, dateEl);
     return link;
   }
 
   const item = document.createElement("article");
-  item.className = "list-item";
-  item.append(titleWrap, dateEl);
+  item.className = `list-item ${className}`.trim();
+  item.append(titleEl, dateEl);
   return item;
+};
+
+const createSeriesGroup = ({ title, posts: seriesPosts }) => {
+  const group = document.createElement("div");
+  group.className = "list-series";
+
+  const seriesTitle = document.createElement("div");
+  seriesTitle.className = "list-series-title";
+  seriesTitle.textContent = title;
+  group.append(seriesTitle);
+
+  const children = document.createElement("div");
+  children.className = "list-series-children";
+
+  seriesPosts.forEach((post) => {
+    children.append(
+      createListItem({
+        ...post,
+        title: post.homeTitle ?? post.title,
+        className: "list-series-child",
+      }),
+    );
+  });
+
+  group.append(children);
+  return group;
 };
 
 const renderSection = (sectionId, listId, items) => {
@@ -69,7 +83,13 @@ const renderSection = (sectionId, listId, items) => {
 
   // The page may arrive prerendered (see build.js); rebuild the list fresh.
   list.replaceChildren();
-  items.forEach((item) => list.append(createListItem(item)));
+  items.forEach((item) => {
+    if (item.type === "series") {
+      list.append(createSeriesGroup(item));
+    } else {
+      list.append(createListItem(item));
+    }
+  });
 };
 
 const renderResearchPage = () => {
@@ -86,7 +106,9 @@ const renderResearchPage = () => {
       date: post.date,
       category: post.category,
       series: post.series,
+      seriesTitle: post.seriesTitle,
       seriesPart: post.seriesPart,
+      homeTitle: post.homeTitle,
       href: `/post/${encodeURIComponent(getPostId(post))}`,
     }));
 
@@ -94,12 +116,32 @@ const renderResearchPage = () => {
     (post) => post.category !== "Engineering" && post.category !== "Side Quests",
   );
 
+  const engineeringPosts = visiblePosts.filter(
+    (post) => post.category === "Engineering" && !post.series,
+  );
+  const seriesGroups = [...new Set(
+    visiblePosts
+      .filter((post) => post.category === "Engineering" && post.series)
+      .map((post) => post.series),
+  )].map((series) => {
+    const seriesPosts = visiblePosts
+      .filter((post) => post.category === "Engineering" && post.series === series)
+      .sort((a, b) => (a.seriesPart ?? 0) - (b.seriesPart ?? 0));
+
+    return {
+      type: "series",
+      title: seriesPosts[0]?.seriesTitle ?? series,
+      posts: seriesPosts,
+    };
+  });
+
   const engineering = [
     ...(siteContent.engineering ?? []).map((item) => ({
       ...item,
       href: item.href ?? null,
     })),
-    ...visiblePosts.filter((post) => post.category === "Engineering"),
+    ...seriesGroups,
+    ...engineeringPosts,
   ];
 
   const sideQuests = visiblePosts.filter((post) => post.category === "Side Quests");
