@@ -1023,6 +1023,269 @@ Obviously a lot of optimizations can be built next, which is exactly what we wil
 */ }),
   },
   {
+    slug: "jwllm-part2",
+    title: "Building a BoundingBlockingQueue from just an Atomic (jwLLM part 2)",
+    date: "2026-09-26",
+    category: "Engineering",
+    authors: "Shrey Birmiwal",
+    noAbstract: true,
+    markdown: markdown(() => { /*
+# Building a BoundingBlockingQueue from just an Atomic (jwLLM part 2)
+
+What’s up, in this blog we’ll be building a primitive that will be useful for our inference engine later down the line. It is also something that we’re learning in my OS course, so I figured implementing it myself would be a good practice.
+
+Bounded blocking queues are useful when we have multiple threads producing work and multiple threads doing work. Here’s the idea:
+
+1. A producer should be able to produce work up until we are at capacity  
+2. If at capacity of work, the producer should wait until we can accept more work  
+3. The producer should wait in a manner that does not hog up CPU resources
+
+Similarly, the consumer has inverted, but similar rules:
+
+1. The consumer should be able to consume work up until we have no work to do  
+2. If at 0 word to do, the consumer should wait till work arrives  
+3. The consumer should wait in a manner that does not hog up CPU resources
+
+Let’s go through the types of synchronization primitives, to solidify learning from the class and see what we have available for us to build this:
+
+### Atomic Variables
+
+Let’s see what happens if we have 3 threads incrementing the same variable over and over again.
+
+| Thread 1 | Thread 2 | Thread 3 |
+| :---- | :---- | :---- |
+| Read variable | Read variable | Read variable |
+| Increment variable | Increment variable | Increment variable |
+| Store variable | Store variable | Store variable |
+
+If these threads run after each other, the variable should equal 3\. If these threads run with overlap, you can see the variable will only be incremented one time. This is because even though incrementing seems like a singular operation, it requires a read, update, and store, and in between a different thread could re read or re-store, before you have a chance to set the variable.
+
+The solution to this is atomic variables \- variables that provide us functions to edit them atomically, for example exchange or increment. They are implemented at the hardware level.
+
+Here’s an example of me messing with atomics to make a thread-safe ATM:
+
+```cpp
+\#include \<atomic\>
+
+std::atomic\<int\> balance;
+
+bool withdraw(int amount)  
+{
+
+   int old\_val \= balance;  
+   while (true)  
+   {  
+       if (old\_val \- amount \< 0)  
+       {  
+           return false;  
+       }  
+       else  
+       {  
+           bool state \= balance.compare\_exchange\_weak(old\_val, old\_val \- amount);  
+           if (state)  
+           {  
+               return true;  
+           }  
+       }  
+   }  
+}
+
+int main()  
+{  
+   balance \= 99;  
+   withdraw(5);  
+   return 0;  
+}
+```
+
+You can see we use the compare\_exchange\_weak to essentially make sure the value we are editing is the same value we expected from a moment ago and only then updating it.
+
+### Spinlocks
+
+Atomics are great\! But they can only keep one counter atomic at a time, not an entire chunk of custom code. However, we can use the notion of atomics to build spinlocks.
+
+Spinlocks “spin” until they have exclusive access, and use an atomic variable to signal to everyone that they have exclusive access. We coded the lock and unlock below\! 
+
+```cpp
+class Spinlock  
+{
+
+private:  
+   std::atomic\<bool\> lock{false};
+
+public:  
+   void spin\_lock()  
+   {  
+       while (lock.exchange(true))  
+       {  
+           ; // keep spinning while it is already locked  
+       }  
+       return;  
+   }  
+   void unlock()  
+   {  
+       lock.exchange(false);  
+   }  
+};
+```
+
+### Mutex
+
+We aren’t going to use Mutex in this, because we opt to build the bounded queue using spinlock instead (because of the short critical section). 
+
+Short summary: Mutex is like a spinlock, but the OS puts the thread to sleep (instead of spinning in a while loop). This is much better if your lock is highly contention because you aren’t wasting CPU time spinning waiting. However, if you don’t expect high contention over your lock, a spinlock is fine and often faster due to overhead from context switching.
+
+I wrote my version of a Mutex here, which your welcome to look into:
+
+```cpp
+class Mutex  
+{
+
+private:  
+   std::atomic\<bool\> spinning\_gaurd\_lock{false};
+
+   std::queue\<struct thread \*\> waiters;  
+   bool locked \= false;
+
+public:  
+   void  
+   lock(struct thread \*thread)  
+   {  
+       // aquire quick temp lock  
+       acquireSpinlockGaurad();
+
+       if (\!locked)  
+       {  
+           locked \= true;  
+       }  
+       else  
+       {  
+           waiters.push(thread);  
+           thread\-\>sleeping \= true;  
+       }
+
+       spinning\_gaurd\_lock.exchange(false);
+
+       // fake sleep. in reality CPU would schedule a new task  
+       while (thread\-\>sleeping)  
+           ;  
+   };
+
+   void unlock(struct thread \*calling\_thread)  
+   {  
+       acquireSpinlockGaurad();  
+       locked \= false;
+
+       if (waiters.size() \> 0)  
+       {  
+           struct thread \*cur \= waiters.front();  
+           waiters.pop();  
+           cur\-\>sleeping \= false;  
+           locked \= true;  
+       }
+
+       spinning\_gaurd\_lock.exchange(false);  
+   };
+
+   void acquireSpinlockGaurad()  
+   {
+
+       while (spinning\_gaurd\_lock.exchange(true))  
+       {  
+           ;  
+       }  
+       return;  
+   };  
+};
+```
+
+### Semaphore
+
+The idea behind a semaphore is combining a lock and a blocking counter. Let’s limit the amount of threads that can enter some piece of code without making them spin while waiting.
+
+First, let’s write the P() function. This is where a thread has requested to “enter.”
+
+```cpp
+   void P()  
+   {  
+       while (true) // while cos we could think we have capacity after wait but it gets taken by someone else  
+       {  
+           gaurd\_lock.spin\_lock();  
+           // lock first, so we can check if the count is good and change it
+
+           if (count \> 0)  
+           {  
+               count \-= 1;  
+               gaurd\_lock.unlock();  
+               return;  
+           }
+
+           // put to sleep  
+           gaurd\_lock.unlock();  
+           // put this thread to sleep and wait for count to be \> 0;  
+           count.wait(0); // waitif currently at 0 (which is true)  
+       }  
+   };
+```
+
+We spinlock to get a guard variable. Then, if we have capacity (count \> 0), we allow it. Else, we have to let our thread sleep until we have capacity.  
+Note that we do have spinning, just not for spinning until capacity (potentially long term). We only spin (short term) to get access to keep our query code thread-safe.
+
+Next, let’s write the V() function, or leave() function.  
+
+```cpp
+   void V()  
+   {  
+       gaurd\_lock.spin\_lock();  
+       count \+= 1;  
+       gaurd\_lock.unlock();
+
+       count.notify\_one();  
+   };
+```
+
+It’s simple. We need to spin to make sure our code is atomic, then update the count. Finally, we notify any sleeping guys that they might want to check if they can go now.
+
+### Bounded Blocking Queue
+
+The bounded blocking queue combines the semaphores and spinlock. The idea here is we have producers giving work (and are blocked if no space to store work exists, without spinning). At the same time, consumers are working (and are blocked if no work exists, without spinning).
+
+We solve this with 2 semaphores. One to keep track (if work exists), to notify the consumers, and one to keep track (if space exists), to notify the producers.
+
+```cpp
+   void produce()  
+   {  
+       count\_avail\_slots.P(); // block unless we have space to give work
+
+       gaurd\_lock.spin\_lock();  
+       work\_queue.push("WORK");  
+       gaurd\_lock.unlock();
+
+       count\_live\_work.V(); // let them know we have work to consume  
+   }
+
+   void consume()  
+   {  
+       count\_live\_work.P(); // block unless we have work to do
+
+       gaurd\_lock.spin\_lock();  
+       std::string work\_to\_do \= work\_queue.front();  
+       work\_queue.pop();  
+       gaurd\_lock.unlock();
+
+       // let them know we have more space for work  
+       count\_avail\_slots.V();  
+   }
+```
+
+Really cool code\! When we produce, we wait until count\_avail\_slots has a spot for us. Once done with the work, we signal to the workers that work exists to consume with count\_live\_work.V(). When we consume, we block until count\_live\_work has work for us. Finally, we signal to the producers that space may exist to add work again\!
+
+### Thanks\!
+
+This was a short article I quickly wrote up after I learned what’s going on to formalize my learning\! Thanks for reading.
+*/ }),
+  },
+  {
     slug: "computer-use-interrupts",
     title: "Making computer-use models faster with interrupts instead of polling",
     date: "2026-09-14",
@@ -1227,6 +1490,31 @@ Check it out:
 ![](/content/poolpro/result.MOV?player)
 
 Code: [https://github.com/jwlaboratory/poolpro](https://github.com/jwlaboratory/poolpro)
+*/ }),
+  },
+  {
+    slug: "grand-theft-alignment",
+    title: "Grand Theft Alignment",
+    date: "2026-09-26",
+    category: "Side Quests",
+    authors: "Shrey Birmiwal",
+    noAbstract: true,
+    markdown: markdown(() => { /*
+# Grand Theft Alignment
+
+A while ago Tejas Bhakta told me an interesting fact: If you theoretically wanted to steal the weights of a frontier model, it could be done.
+
+You would need to find the GPUs that it is running on, freeze such GPU to such a temperature that the data and bits are frozen on the processor, then use nano technology to extract the bits and thus extract the model weights.
+
+Jokes aside, when a set of weights becomes so valuable, and is limited to a few select individuals, I can see how security of hardware will become a top national security priority.
+
+In all fun and well, I had codex build this game, which I was shocked (jaw dropped) that it built the following game in just 1 prompt. Claude tried to build it as well, but it refused halfway through due to ethical reasons.
+
+I call it Grand Theft Alignment.
+
+![](/content/grand-theft-alignment/trailer.mp4?player)
+
+Play it here\! [https://grand-theft-alignment.vercel.app/](https://grand-theft-alignment.vercel.app/)
 */ }),
   },
   {
