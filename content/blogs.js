@@ -11,6 +11,8 @@ window.BLOG_POSTS = [
     title: "Making An Inference engine entirely in cpp (jwLLM part 1)",
     date: "2026-09-15",
     category: "Engineering",
+    series: "jwLLM",
+    seriesPart: 1,
     authors: "Shrey Birmiwal",
     noAbstract: true,
     summary: "A semester-long build log about creating a GPT-2 inference engine in Cpp while applying ideas from linear algebra, operating systems, and systems programming.",
@@ -1027,6 +1029,8 @@ Obviously a lot of optimizations can be built next, which is exactly what we wil
     title: "Building a BoundingBlockingQueue from just an Atomic (jwLLM part 2)",
     date: "2026-09-26",
     category: "Engineering",
+    series: "jwLLM",
+    seriesPart: 2,
     authors: "Shrey Birmiwal",
     noAbstract: true,
     markdown: markdown(() => { /*

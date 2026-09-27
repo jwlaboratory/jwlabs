@@ -19,7 +19,7 @@ const formatShortDate = (dateValue) => {
   }).format(date);
 };
 
-const createListItem = ({ title, date, href }) => {
+const createListItem = ({ title, date, href, series, seriesPart }) => {
   const dateEl = document.createElement("span");
   dateEl.className = "list-item-date";
   dateEl.textContent = formatShortDate(date);
@@ -28,17 +28,29 @@ const createListItem = ({ title, date, href }) => {
   titleEl.className = "list-item-title";
   titleEl.textContent = title;
 
+  const titleWrap = document.createElement("span");
+  titleWrap.className = "list-item-title-wrap";
+
+  if (series) {
+    const seriesEl = document.createElement("span");
+    seriesEl.className = "list-item-series";
+    seriesEl.textContent = seriesPart ? `${series} · Part ${seriesPart}` : series;
+    titleWrap.append(seriesEl);
+  }
+
+  titleWrap.append(titleEl);
+
   if (href) {
     const link = document.createElement("a");
     link.className = "list-item list-item-link";
     link.href = href;
-    link.append(titleEl, dateEl);
+    link.append(titleWrap, dateEl);
     return link;
   }
 
   const item = document.createElement("article");
   item.className = "list-item";
-  item.append(titleEl, dateEl);
+  item.append(titleWrap, dateEl);
   return item;
 };
 
@@ -73,6 +85,8 @@ const renderResearchPage = () => {
       title: post.title,
       date: post.date,
       category: post.category,
+      series: post.series,
+      seriesPart: post.seriesPart,
       href: `/post/${encodeURIComponent(getPostId(post))}`,
     }));
 
