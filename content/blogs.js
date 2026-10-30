@@ -1297,7 +1297,7 @@ This was a short article I quickly wrote up after I learned what’s going on to
     title: "Making computer-use models faster with interrupts instead of polling",
     date: "2026-09-14",
     category: "Engineering",
-    authors: "Shrey Birmiwal",
+    authors: "Shrey Birmiwal and Avi Agrawal",
     summary: "A proof of concept for replacing expensive computer-use polling loops with a tiny local watcher model that detects when an application is ready and interrupts the main model.",
     markdown: markdown(() => { /*
 # Making computer-use models faster with interrupts instead of polling
